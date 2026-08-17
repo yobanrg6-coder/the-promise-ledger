@@ -25,6 +25,19 @@ Instructions:
    content_saturation_level, estimated_viral_window_hours, and lifecycle_stage in your output. Never invent your
    own values for these five fields, and never claim a 'DECAYING' stage - this system has no historical data to
    support that claim, only a single snapshot.
+1b. ALSO call `get_niche_trend_signals` with a SHORT, REAL search term distilled from the niche -
+   not the full niche/persona sentence you were given. E.g. for niche "creador de contenido
+   organico sobre perros" call it with keyword='perros', not the whole sentence (nobody searches
+   the whole sentence, so it returns nothing - that failure means your keyword choice was too
+   long, not that there's no niche signal). Try one or two different short keywords if your first
+   choice returns an empty list before concluding there's genuinely nothing. This is what lets a
+   narrow niche (pets, hobbies, a specific vertical) surface real candidates even on a day when
+   nothing niche-related cracks the country's generic top-10 from get_grounded_opportunity_candidates.
+   These candidates use the same grounded_* fields - copy them verbatim too, and merge them into
+   the SAME signals_evaluated/opportunity_radar reasoning as the primary candidates, not a separate
+   list. Being niche-specific does NOT automatically mean high audience_relevance_score - still
+   judge the actual query text honestly (a rising query that only shares a word with the niche,
+   like a movie title containing an animal's name, is not really "about" the niche).
 2. If a target market was specified, call `get_cross_market_gaps` to check which candidate topics are trending in
    the baseline market but not yet visible in the target market's own trending list. Copy the results verbatim
    into cross_market_gaps - report them as an observed absence ("not yet visible in <target_geo>"), NEVER as a

@@ -13,3 +13,4 @@ rich>=13.9.0
 requests>=2.32.0
 defusedxml>=0.7.1
 google-cloud-firestore>=2.19.0
+pytrends>=4.9.2

@@ -13,6 +13,7 @@ from typing import Any
 # untrusted input. Drop-in compatible API.
 import defusedxml.ElementTree as ET
 import httpx
+from pytrends.request import TrendReq
 
 
 class GoogleTrendsService:
@@ -91,6 +92,70 @@ class GoogleTrendsService:
         if not suggestions:
             print(f"[TrendsService] No live suggestions returned for keyword='{keyword}' - returning empty, no fallback data.")
         return suggestions
+
+    @classmethod
+    def fetch_niche_signal(cls, keyword: str, geo: str = "MX", language: str = "es") -> dict[str, Any]:
+        """
+        Real, quantified Google Trends data for the user's exact niche keyword.
+        fetch_daily_trending_topics only covers a country's generic top-10 news/
+        sports/pop-culture list, which rarely intersects with a narrow niche
+        (pets, hobbies, a specific B2B vertical) - a niche can have real,
+        accelerating search interest that never once cracks the national
+        top-10. This queries Trends' interest-over-time and related-queries
+        widgets directly for the niche itself, via the unofficial but
+        real-data pytrends client (no API key, same underlying Google data the
+        public trends.google.com website shows).
+        Returns:
+            current_interest: latest 0-100 relative interest value for the
+                keyword itself over the last 7 days (real, Google-computed).
+            rising_queries: real queries actually accelerating around this
+                keyword right now - [{"query": str, "growth_pct": int | None}],
+                None means Google's own "Breakout" label (essentially infinite
+                growth from a near-zero base), never estimated by us.
+            top_queries: established, already-popular queries for this niche -
+                [{"query": str, "value": int}], real 0-100 relative values.
+        Empty dict on any failure (network, no data for this geo/keyword,
+        Google rate-limiting this unofficial endpoint) - never fabricated.
+        """
+        empty = {"current_interest": None, "rising_queries": [], "top_queries": []}
+        if not keyword.strip():
+            return empty
+        try:
+            pytrends = TrendReq(hl=language, tz=360, timeout=(5, 10))
+            pytrends.build_payload([keyword], timeframe="now 7-d", geo=geo.upper())
+
+            interest_df = pytrends.interest_over_time()
+            current_interest = None
+            if not interest_df.empty:
+                current_interest = int(interest_df[keyword].iloc[-1])
+
+            related = pytrends.related_queries().get(keyword, {})
+            rising_queries = []
+            rising_df = related.get("rising")
+            if rising_df is not None and not rising_df.empty:
+                for _, row in rising_df.head(8).iterrows():
+                    try:
+                        growth_pct = int(row["value"])
+                    except (ValueError, TypeError):
+                        # Google's own literal "Breakout" label for extreme
+                        # growth from a near-zero base - not a number we invent.
+                        growth_pct = None
+                    rising_queries.append({"query": str(row["query"]), "growth_pct": growth_pct})
+
+            top_queries = []
+            top_df = related.get("top")
+            if top_df is not None and not top_df.empty:
+                for _, row in top_df.head(8).iterrows():
+                    top_queries.append({"query": str(row["query"]), "value": int(row["value"])})
+
+            return {
+                "current_interest": current_interest,
+                "rising_queries": rising_queries,
+                "top_queries": top_queries,
+            }
+        except Exception as e:  # noqa: BLE001 - third-party endpoint (unofficial Trends API): network/parsing/rate-limit failures all fold into the same empty-signal fallback
+            print(f"[TrendsService] Niche signal fetch warning for keyword='{keyword}': {e}")
+            return empty
 
     @classmethod
     def get_platform_virality_benchmarks(cls, platform: str) -> dict[str, Any]:

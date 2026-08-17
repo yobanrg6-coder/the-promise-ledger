@@ -11,11 +11,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents.scoring import (
     classify_lifecycle_stage,
+    classify_niche_lifecycle_stage,
     compute_saturation,
     compute_velocity_score,
     compute_viral_window_hours,
     derive_recommended_action,
     find_cross_market_gaps,
+    ground_niche_candidates,
     parse_traffic_estimate,
     rank_and_ground_candidates,
     recompute_virality_verdict,
@@ -183,6 +185,59 @@ def test_lifecycle_stage_always_one_of_four_valid_values():
             for news in range(0, 3):
                 stage = classify_lifecycle_stage(traffic, rank, 10, news, 4)
                 assert stage in ("EMERGING", "ACCELERATING", "BREAKOUT", "SATURATED")
+
+
+def test_ground_niche_candidates_empty_signal_returns_empty_list():
+    assert ground_niche_candidates({"current_interest": None, "rising_queries": [], "top_queries": []}) == []
+
+
+def test_ground_niche_candidates_ignores_top_queries():
+    """top_queries are established baseline context, not opportunity candidates -
+    only rising_queries should ever become a candidate."""
+    signal = {
+        "current_interest": 60,
+        "rising_queries": [],
+        "top_queries": [{"query": "already popular", "value": 90}],
+    }
+    assert ground_niche_candidates(signal) == []
+
+
+def test_ground_niche_candidates_breakout_scores_max_velocity():
+    signal = {"current_interest": 40, "rising_queries": [{"query": "x", "growth_pct": None}], "top_queries": []}
+    grounded = ground_niche_candidates(signal)
+    assert len(grounded) == 1
+    assert grounded[0]["topic"] == "x"
+    assert grounded[0]["search_volume"] == "Breakout"
+    assert grounded[0]["grounded_velocity_score"] == 25
+    assert grounded[0]["niche_specific"] is True
+
+
+def test_ground_niche_candidates_low_growth_scores_low_velocity():
+    signal = {"current_interest": 40, "rising_queries": [{"query": "y", "growth_pct": 20}], "top_queries": []}
+    grounded = ground_niche_candidates(signal)
+    assert grounded[0]["grounded_velocity_score"] < 5
+    assert grounded[0]["search_volume"] == "+20%"
+
+
+def test_ground_niche_candidates_scores_always_within_bounds():
+    for growth in [None, 0, 20, 150, 300, 5000]:
+        signal = {"current_interest": 50, "rising_queries": [{"query": "z", "growth_pct": growth}], "top_queries": []}
+        grounded = ground_niche_candidates(signal)
+        assert 0 <= grounded[0]["grounded_velocity_score"] <= 25
+        assert 0 <= grounded[0]["grounded_saturation_score"] <= 15
+        assert grounded[0]["grounded_lifecycle_stage"] in ("EMERGING", "ACCELERATING", "BREAKOUT", "SATURATED")
+
+
+def test_classify_niche_lifecycle_stage_breakout():
+    assert classify_niche_lifecycle_stage(velocity_score=25, saturation_level="LOW") == "BREAKOUT"
+
+
+def test_classify_niche_lifecycle_stage_saturated_overrides_high_velocity():
+    assert classify_niche_lifecycle_stage(velocity_score=25, saturation_level="SATURATED") == "SATURATED"
+
+
+def test_classify_niche_lifecycle_stage_low_velocity_is_emerging():
+    assert classify_niche_lifecycle_stage(velocity_score=2, saturation_level="LOW") == "EMERGING"
 
 
 def test_cross_market_gap_detects_topic_missing_in_target():

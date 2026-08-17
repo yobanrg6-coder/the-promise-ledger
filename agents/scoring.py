@@ -85,7 +85,7 @@ def compute_viral_window_hours(related_news_count: int, breakout_suggestion_coun
     # high current traffic burns the window faster even at low saturation
     adjusted = max(2, round(base_hours * (1 - 0.4 * traffic_component)))
     low = max(2, adjusted - 4)
-    return f"{low}-{adjusted} horas"
+    return f"{low}-{adjusted} hours"
 
 
 LIFECYCLE_STAGES = ("EMERGING", "ACCELERATING", "BREAKOUT", "SATURATED")
@@ -208,6 +208,79 @@ def rank_and_ground_candidates(
             "grounded_lifecycle_stage": lifecycle_stage,
         })
     return grounded
+
+
+# Niche-specific rising-query growth is a percentage, not a traffic count, so
+# it needs its own ceiling separate from TRAFFIC_CEILING. 300% is already a
+# strong real breakout for a specific search query (most rising queries land
+# in the 50-150% range); a literal Google "Breakout" label (growth_pct=None)
+# is treated as hitting this ceiling, since it represents an even larger,
+# unquantified jump from a near-zero base.
+RISING_GROWTH_CEILING = 300
+
+
+def classify_niche_lifecycle_stage(velocity_score: int, saturation_level: str) -> str:
+    """Same four-stage rule as classify_lifecycle_stage, applied to scores
+    already computed from niche-specific rising-query data instead of the
+    national daily-trends RSS feed."""
+    if saturation_level == "SATURATED":
+        return "SATURATED"
+    if velocity_score >= 20 and saturation_level == "LOW":
+        return "BREAKOUT"
+    if velocity_score >= 10:
+        return "ACCELERATING"
+    return "EMERGING"
+
+
+def ground_niche_candidates(niche_signal: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Convert real, niche-specific Google Trends data (GoogleTrendsService.fetch_niche_signal)
+    into the same grounded-candidate shape rank_and_ground_candidates produces from the
+    generic national daily-trends feed, so both sources can be merged into one candidate
+    list the TrendScoutAgent reasons over identically.
+
+    Only the 'rising_queries' - real queries Google itself flags as currently accelerating
+    around this exact niche keyword - become candidates. 'top_queries' (already-established,
+    high-value related terms) are informational context, not opportunity candidates: a
+    query already popular today isn't a timing opportunity, it's the baseline the rising
+    queries are breaking out from.
+
+    A query that is, by Google's own methodology, "rising" or "breakout" is by definition
+    not yet saturated - so saturation here is derived from the same growth_pct that drives
+    velocity (the faster and newer the rise, the further it is from being old news), not a
+    second independent signal we don't have for a single search query.
+    """
+    candidates = []
+    for item in niche_signal.get("rising_queries", []):
+        growth_pct = item.get("growth_pct")
+        is_breakout = growth_pct is None
+        effective_growth = RISING_GROWTH_CEILING if is_breakout else growth_pct
+
+        velocity_score = max(0, min(VELOCITY_MAX, round(VELOCITY_MAX * min(effective_growth / RISING_GROWTH_CEILING, 1.0))))
+        saturation_score = max(0, min(SATURATION_MAX, round(SATURATION_MAX * min(effective_growth / RISING_GROWTH_CEILING, 1.0))))
+        if saturation_score >= 10:
+            saturation_level = "LOW"
+        elif saturation_score >= 5:
+            saturation_level = "MEDIUM"
+        else:
+            saturation_level = "SATURATED"
+
+        base_hours = {"LOW": 18, "MEDIUM": 10, "SATURATED": 3}[saturation_level]
+        low = max(2, base_hours - 4)
+
+        candidates.append({
+            "topic": item["query"],
+            "search_volume": "Breakout" if is_breakout else f"+{growth_pct}%",
+            "published_at": "",
+            "related_news": [],
+            "grounded_velocity_score": velocity_score,
+            "grounded_saturation_score": saturation_score,
+            "grounded_saturation_level": saturation_level,
+            "grounded_viral_window_hours": f"{low}-{base_hours} hours",
+            "grounded_lifecycle_stage": classify_niche_lifecycle_stage(velocity_score, saturation_level),
+            "niche_specific": True,
+        })
+    return candidates
 
 
 def find_cross_market_gaps(

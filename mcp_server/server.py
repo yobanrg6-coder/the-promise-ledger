@@ -23,7 +23,11 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from trends_service import GoogleTrendsService
 
-from agents.scoring import find_cross_market_gaps, rank_and_ground_candidates
+from agents.scoring import (
+    find_cross_market_gaps,
+    ground_niche_candidates,
+    rank_and_ground_candidates,
+)
 from ledger import store as ledger_store
 
 load_dotenv()
@@ -66,6 +70,27 @@ def get_grounded_opportunity_candidates(geo: str = "ES", keyword: str = "") -> l
     daily_trends = GoogleTrendsService.fetch_daily_trending_topics(geo=geo)
     breakout_queries = GoogleTrendsService.fetch_breakout_queries(keyword=keyword or geo) if keyword else []
     return rank_and_ground_candidates(daily_trends, breakout_queries)
+
+@mcp.tool()
+def get_niche_trend_signals(keyword: str, geo: str = "ES") -> list:
+    """
+    Real, quantified rising-search-query candidates for a SHORT, ACTUAL search term
+    (e.g. 'perros', 'B2B SaaS pricing', 'home espresso') - not a full niche/persona
+    description. get_grounded_opportunity_candidates only covers a country's generic
+    top-10 news/sports/pop-culture list, which rarely intersects with a narrow niche
+    even when that niche has real search interest of its own. Use this to check the
+    niche directly instead of only relying on the generic list.
+    IMPORTANT: pass a genuine short search term, not the user's full niche sentence -
+    "creador de contenido organico sobre perros" returns nothing because nobody
+    searches that exact phrase; "perros" does. If your first attempt returns an empty
+    list, try a shorter or more literal keyword before concluding there's no niche
+    signal - do not silently give up after one attempt.
+    Args:
+        keyword: A short, real search term someone would actually type
+        geo: Two-letter country code (e.g. 'ES', 'MX', 'US', 'GB')
+    """
+    niche_signal = GoogleTrendsService.fetch_niche_signal(keyword=keyword, geo=geo)
+    return ground_niche_candidates(niche_signal)
 
 @mcp.tool()
 def get_cross_market_gaps(baseline_geo: str = "US", target_geo: str = "MX") -> list:

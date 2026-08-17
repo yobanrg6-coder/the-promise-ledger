@@ -7,6 +7,13 @@ let currentCampaignData = null;
 let timerInterval = null;
 let startTime = 0;
 let revisionHistory = {}; // draft_number -> { script, audit }
+// Tracks the in-flight /api/generate-stream request, if any. Without this, a
+// scan abandoned via Reset Session (or superseded by a new one) keeps
+// streaming in the background and its 'complete'/'decision_stop' event still
+// fires later, silently repainting stale results over whatever the user
+// reset to or started next - observed live: a Reset Session mid-scan, then
+// the old ACT_NOW result popped back into the output panel seconds later.
+let activeRunController = null;
 
 // Every value rendered through innerHTML below can ultimately originate from
 // user input (the niche/region fields, or a direct API call bypassing the
@@ -24,6 +31,52 @@ function escapeHtml(value) {
 
 function setTopic(text) {
     document.getElementById('topicInput').value = text;
+}
+
+// Captured once at load, before any scan can overwrite #emptyState's innerHTML
+// with a decision_stop/no_data render - resetSession() needs the original
+// markup to restore, not whatever the last scan left behind.
+const EMPTY_STATE_DEFAULT_HTML = document.getElementById('emptyState').innerHTML;
+
+// Brand Memory Bank's default values (Founders/Executives, Direct & Analytical)
+// match the pre-filled AI Agents niche example - switching to an unrelated
+// niche (e.g. pet content) without updating them produces a nonsensical mixed
+// audience in the LLM's own reasoning ("relevance for founders... centered on
+// dog content"). Clearing them to blank forces a conscious refill instead of
+// silently carrying over a mismatched default.
+function resetSession() {
+    if (activeRunController) {
+        activeRunController.abort();
+        activeRunController = null;
+    }
+
+    document.getElementById('topicInput').value = '';
+    document.getElementById('brandToneInput').value = '';
+    document.getElementById('brandAudienceInput').value = '';
+    document.getElementById('winningHooksInput').value = '';
+    document.getElementById('apiKeyInput').value = '';
+
+    const emptyState = document.getElementById('emptyState');
+    emptyState.innerHTML = EMPTY_STATE_DEFAULT_HTML;
+    emptyState.classList.remove('hidden');
+    document.getElementById('outputContainer').classList.add('hidden');
+    document.getElementById('agentTimeline').classList.add('hidden');
+    document.getElementById('agentLiveTerminal').innerHTML = '';
+
+    clearInterval(timerInterval);
+    currentCampaignData = null;
+    revisionHistory = {};
+
+    // The aborted run's own runCampaign() no longer resets this (its finally
+    // block only touches shared UI state when it still owns
+    // activeRunController, which we just cleared above) - reset it here
+    // instead so a mid-scan Reset Session doesn't leave the button stuck
+    // showing "Scanning Radar & Agents...".
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = `<span class="btn-text">Scan Radar & Run Agents</span>`;
+
+    document.getElementById('topicInput').focus();
 }
 
 function switchTab(evt, tabId) {
@@ -85,6 +138,12 @@ async function runCampaign(forcedTopic) {
     const brandAudience = document.getElementById('brandAudienceInput').value.trim();
     const apiKey = document.getElementById('apiKeyInput').value.trim();
 
+    // Supersede whatever scan (if any) was already streaming - only one
+    // scan's events should ever be able to paint the UI at a time.
+    if (activeRunController) activeRunController.abort();
+    const controller = new AbortController();
+    activeRunController = controller;
+
     // UI State: Running
     const submitBtn = document.getElementById('submitBtn');
     submitBtn.disabled = true;
@@ -126,7 +185,8 @@ async function runCampaign(forcedTopic) {
                 target_audience: brandAudience,
                 api_key: apiKey || null,
                 forced_topic: forcedTopic || null
-            })
+            }),
+            signal: controller.signal
         });
 
         if (!response.ok) {
@@ -138,6 +198,7 @@ async function runCampaign(forcedTopic) {
         let buffer = '';
 
         while (true) {
+            if (controller.signal.aborted) return;
             const { value, done } = await reader.read();
             if (done) break;
 
@@ -161,13 +222,22 @@ async function runCampaign(forcedTopic) {
         }
 
     } catch (error) {
+        if (error.name === 'AbortError') {
+            return; // superseded by a newer scan or Reset Session - not a real failure
+        }
         console.error("Fetch stream error:", error);
         addTerminalLog("Error", `Swarm failure: ${error.message}`, true);
         alert(`Error: ${error.message}`);
     } finally {
-        clearInterval(timerInterval);
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = `<span class="btn-text">Scan New Target</span>`;
+        // A superseded run's own finally still fires on abort - only the run
+        // that currently owns activeRunController should touch shared UI
+        // state (button/timer), or an old run finishing late could stomp on
+        // whatever the newer run or Reset Session already set up.
+        if (activeRunController === controller) {
+            clearInterval(timerInterval);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<span class="btn-text">Scan New Target</span>`;
+        }
     }
 }
 
