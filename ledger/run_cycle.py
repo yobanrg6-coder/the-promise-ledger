@@ -28,13 +28,10 @@ MARKET_PAIRS = [
     ("GB", "US"),
 ]
 
-DB_PATH = store.DEFAULT_DB_PATH
-
-
 def main():
     logger.info("Ledger cycle starting at %s", datetime.now(timezone.utc).isoformat())
 
-    resolution = predictor.resolve_due_predictions(db_path=DB_PATH)
+    resolution = predictor.resolve_due_predictions()
     logger.info(
         "Resolved %d due predictions (%d correct, %d incorrect, %d skipped - fetch failed)",
         resolution["checked"], resolution["resolved_correct"], resolution["resolved_incorrect"],
@@ -44,13 +41,13 @@ def main():
     total_new = 0
     for baseline_geo, target_geo in MARKET_PAIRS:
         try:
-            new_ids = predictor.make_predictions_for_market_pair(baseline_geo, target_geo, db_path=DB_PATH)
+            new_ids = predictor.make_predictions_for_market_pair(baseline_geo, target_geo)
             logger.info("Recorded %d new predictions for %s -> %s", len(new_ids), baseline_geo, target_geo)
             total_new += len(new_ids)
         except Exception:
             logger.exception("Failed to record predictions for %s -> %s", baseline_geo, target_geo)
 
-    stats = store.get_accuracy_stats(db_path=DB_PATH)
+    stats = store.get_accuracy_stats()
     logger.info(
         "Cycle complete. New predictions: %d. Ledger totals: %d evaluated, %s%% accuracy, %d pending.",
         total_new, stats["evaluated"],

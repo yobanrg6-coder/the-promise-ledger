@@ -11,7 +11,6 @@ target_geo's trending list at (or after) the deadline and checks for real.
 
 import os
 import sys
-from contextlib import closing
 from typing import Any
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -55,7 +54,7 @@ def _normalize(topic: str) -> str:
     return topic.strip().lower()
 
 
-def make_predictions_for_market_pair(baseline_geo: str, target_geo: str, db_path: str = store.DEFAULT_DB_PATH) -> list[str]:
+def make_predictions_for_market_pair(baseline_geo: str, target_geo: str, backend: store.PredictionBackend | None = None) -> list[str]:
     baseline_trends = GoogleTrendsService.fetch_daily_trending_topics(geo=baseline_geo)
     target_trends = GoogleTrendsService.fetch_daily_trending_topics(geo=target_geo)
     gaps = find_cross_market_gaps(baseline_geo, baseline_trends, target_geo, target_trends)
@@ -78,14 +77,10 @@ def make_predictions_for_market_pair(baseline_geo: str, target_geo: str, db_path
     with_scores.sort(key=lambda t: t[2], reverse=True)  # highest velocity first
     with_scores = with_scores[:MAX_NEW_CANDIDATES_PER_MARKET_PAIR]
 
-    with closing(store.get_connection(db_path)) as conn:
-        existing_pending = {
-            (_normalize(row["topic"]), row["evaluation_window_hours"])
-            for row in conn.execute(
-                "SELECT topic, evaluation_window_hours FROM predictions WHERE status = 'PENDING' AND baseline_geo = ? AND target_geo = ?",
-                (baseline_geo, target_geo),
-            ).fetchall()
-        }
+    existing_pending = {
+        (_normalize(row["topic"]), row["evaluation_window_hours"])
+        for row in store.get_pending_for_pair(baseline_geo, target_geo, backend=backend)
+    }
 
     new_ids = []
     for idx, item, velocity, saturation_level, lifecycle in with_scores:
@@ -94,7 +89,7 @@ def make_predictions_for_market_pair(baseline_geo: str, target_geo: str, db_path
             if (_normalize(topic), float(horizon_hours)) in existing_pending:
                 continue
             prediction_id = store.record_prediction(
-                db_path=db_path,
+                backend=backend,
                 topic=topic,
                 baseline_geo=baseline_geo,
                 target_geo=target_geo,
@@ -109,8 +104,8 @@ def make_predictions_for_market_pair(baseline_geo: str, target_geo: str, db_path
     return new_ids
 
 
-def resolve_due_predictions(db_path: str = store.DEFAULT_DB_PATH) -> dict[str, int]:
-    due = store.get_due_predictions(db_path)
+def resolve_due_predictions(backend: store.PredictionBackend | None = None) -> dict[str, int]:
+    due = store.get_due_predictions(backend=backend)
     resolved_correct = 0
     resolved_incorrect = 0
     skipped_fetch_failed = 0
@@ -145,14 +140,16 @@ def resolve_due_predictions(db_path: str = store.DEFAULT_DB_PATH) -> dict[str, i
         if match:
             rank = target_trends.index(match) + 1
             store.resolve_prediction(
-                db_path, prediction["id"], "CORRECT",
-                f"Appeared in {target_geo} trending list at rank {rank} ({match.get('search_volume', '?')})."
+                prediction["id"], "CORRECT",
+                f"Appeared in {target_geo} trending list at rank {rank} ({match.get('search_volume', '?')}).",
+                backend=backend,
             )
             resolved_correct += 1
         else:
             store.resolve_prediction(
-                db_path, prediction["id"], "INCORRECT",
-                f"Still not visible in {target_geo}'s trending list as of resolution time."
+                prediction["id"], "INCORRECT",
+                f"Still not visible in {target_geo}'s trending list as of resolution time.",
+                backend=backend,
             )
             resolved_incorrect += 1
 

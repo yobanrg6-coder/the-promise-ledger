@@ -10,11 +10,15 @@ The falsifiable-prediction subsystem behind TopicAhead's "Attention Intelligence
 2. The top `MAX_NEW_CANDIDATES_PER_MARKET_PAIR` (3) surviving candidates each get a falsifiable prediction recorded at **1h, 4h, 12h and 24h** horizons: *"topic X will appear in target_geo's own trending list within N hours."*
 3. `predictor.resolve_due_predictions()` re-pulls `target_geo`'s trending list once the horizon elapses and checks for a real match. If the fetch itself fails or returns nothing (network hiccup, feed unreachable), the prediction is **left PENDING and retried next cycle** — it is never resolved as INCORRECT just because a check failed. Conflating "didn't happen" with "couldn't check" would silently poison the accuracy stat on every transient outage during the unattended 6h cycle; this distinction was added 16-ago-2026 after finding the original code did exactly that.
 
+## Storage
+
+Predictions are stored in **Firestore** (`predictions` collection, project `topicahead-hackathon`) in production, behind the `PredictionBackend` protocol in `store.py`. Tests run against `InMemoryBackend` (no network, no emulator). The original implementation used a local SQLite file (`data/ledger.db`), replaced 17-ago-2026 because Cloud Run's per-instance filesystem is ephemeral — a restart or scale-to-zero would have silently wiped every accumulated prediction. `data/ledger.db` still exists in the repo as a historical snapshot from before the migration; nothing reads it anymore.
+
 ## Running it
 
-- One-off: `python -m ledger.run_cycle` (or `venv\Scripts\python.exe -m ledger.run_cycle` on Windows).
-- Unattended: `ledger/run_cycle.bat` wired to the Windows Scheduled Task `TopicAheadLedgerCycle`, firing every 6h. Requires the machine's Windows session to be logged in (`LogonType: Interactive`) — it does **not** need an active Claude/dev session. As of 16-ago-2026 its power settings (`DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries`) are both `False`, so a cycle no longer gets silently skipped while running on battery.
-- Logs to `data/ledger_cycle.log`. `get_forecast_accuracy()` (exposed as an MCP tool) returns the live totals.
+- One-off, local: `python -m ledger.run_cycle` (needs `GOOGLE_APPLICATION_DEFAULT` credentials for the `topicahead-hackathon` project, or run it from Cloud Shell / a machine already authenticated to that project).
+- Unattended, production: **Cloud Run Job `ledger-cycle`** (same container image as the web service, entrypoint overridden to `python -m ledger.run_cycle`; no Gemini key needed — the ledger cycle never calls an LLM), triggered every 6h by **Cloud Scheduler job `ledger-cycle-scheduler`** (`0 */6 * * *` UTC) via an authenticated REST call to the Cloud Run Jobs API. The old Windows Scheduled Task `TopicAheadLedgerCycle` (which ran this against the local SQLite file) is disabled as of 17-ago-2026 — it's superseded, not a second source of truth.
+- `get_forecast_accuracy()` (exposed as an MCP tool) returns the live totals straight from Firestore.
 
 ## Known limitation
 

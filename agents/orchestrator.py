@@ -240,6 +240,16 @@ class TopicAheadOrchestrator:
         radar.recommended_action = derive_recommended_action(radar.total_opportunity_score, radar.audience_relevance_score)
         trend_intel.target_market_geo = resolved_target_geo
 
+        # signals_evaluated[i].opportunity_score is a separate LLM-authored field
+        # that duplicates the same number for the SELECTED candidate - keep it in
+        # sync with the code-verified radar score instead of showing two
+        # different numbers for the same topic (observed live: 48 vs 61 for the
+        # identical selected trend, undermining the "grounded, no invented
+        # numbers" claim this product is built on).
+        for signal in trend_intel.signals_evaluated:
+            if signal.verdict == "SELECTED":
+                signal.opportunity_score = radar.total_opportunity_score
+
         # Never trust the LLM's "copy this tool result verbatim" either: it
         # occasionally corrupts a field while re-serializing JSON (observed
         # live - an apostrophe in a real topic, "colo-colo - o'higgins",

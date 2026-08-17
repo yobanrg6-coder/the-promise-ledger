@@ -217,14 +217,18 @@ function renderDecisionStop(data) {
 
     const gapsHtml = (trends.cross_market_gaps && trends.cross_market_gaps.length > 0)
         ? `<div class="gaps-box" style="text-align:left; margin-top:1.25rem; max-width:560px;">
-             <h4>Cross-Market Gaps (real trend, not yet visible)</h4>
+             <h4>Get there before your market does</h4>
+             <p style="color:var(--text-muted); font-size:0.85rem; margin-top:-0.25rem;">These are already real trends elsewhere — not yet visible in ${escapeHtml(trends.target_market_geo)}. Nothing to react to yet, so nobody else is covering it either.</p>
              ${trends.cross_market_gaps.map(gap => `
                 <div class="gap-row">
                     <div>
                         <span class="gap-topic">${escapeHtml(gap.topic)}</span>
                         <span style="color:var(--text-muted);"> — trending in ${escapeHtml(gap.baseline_geo)}, not yet visible in ${escapeHtml(gap.target_geo || trends.target_market_geo)}</span>
                     </div>
-                    <span class="gap-meta">#${gap.baseline_rank} · ${escapeHtml(gap.baseline_search_volume)}</span>
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <span class="gap-meta">#${gap.baseline_rank} · ${escapeHtml(gap.baseline_search_volume)}</span>
+                        <button type="button" class="regenerate-btn" data-topic="${escapeHtml(gap.topic)}">Generate this instead</button>
+                    </div>
                 </div>
              `).join('')}
            </div>`
