@@ -97,7 +97,7 @@ def main():
 
     uvicorn.run(
         "web_app.app:app",
-        host="127.0.0.1",
+        host="0.0.0.0",  # nosec B104 - Cloud Run's health check probes from outside the container and needs this; 127.0.0.1 only accepts loopback connections
         port=web_port,
         reload=False,
         log_level="info"
