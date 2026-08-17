@@ -106,7 +106,7 @@ All four run as real `google.adk` `LlmAgent`s executed through an `InMemoryRunne
 
 ### 1. Clone & Install Dependencies
 ```bash
-git clone https://github.com/yobanrg/TopicAhead.git
+git clone https://github.com/yobanrg6-coder/TopicAhead.git
 cd TopicAhead
 pip install -r requirements.txt
 ```
