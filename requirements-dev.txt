@@ -1,0 +1,4 @@
+# Dev-only dependencies (not needed in the Cloud Run image)
+-r requirements.txt
+pytest>=8.3.0
+pytest-asyncio>=0.24.0

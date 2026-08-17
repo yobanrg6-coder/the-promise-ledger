@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TopicAhead - Attention Intelligence Layer & Multi-Agent Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <!-- Top Mission Control Navigation Bar -->
+    <header class="navbar">
+        <div class="nav-container">
+            <div class="logo-area">
+                <div class="logo-text">
+                    <h1>Topic<span>Ahead</span></h1>
+                    <p class="tagline">Attention Intelligence Layer & Multi-Agent Studio</p>
+                </div>
+            </div>
+            <div class="nav-badges">
+                <div class="badge mcp-badge">
+                    <span class="pulse-dot"></span> FastMCP Server :8080
+                </div>
+                <div class="badge adk-badge">Google ADK & Gemini</div>
+                <div class="badge cloud-badge">Google Cloud Run Ready</div>
+                <a href="https://www.skills.google/public_profiles/6bac5b41-ee95-4a9a-b9ee-d871c4e31106" target="_blank" class="badge gear-badge">GEAR Certified</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Application Container -->
+    <main class="main-layout">
+
+        <!-- Left Column: Mission Control & Brand Memory -->
+        <section class="control-panel">
+            <div class="panel-header">
+                <h2>Mission Control & Radar</h2>
+                <p>The autonomous swarm will scan Google Trends, detect the fastest-accelerating opportunity, and self-correct the script until it passes the Critic's review.</p>
+            </div>
+
+            <form id="campaignForm">
+                <!-- Topic Input -->
+                <div class="form-group">
+                    <label for="topicInput">Target / Market Niche <span class="req">*</span></label>
+                    <input type="text" id="topicInput" placeholder="E.g.: AI Agents for Enterprise, Fitness & Longevity, B2B SaaS..." required value="Artificial Intelligence Agents for Enterprise">
+                    <div class="quick-tags">
+                        <span class="tag-chip" onclick="setTopic('Process Automation with AI Agents')">AI Agents</span>
+                        <span class="tag-chip" onclick="setTopic('Productivity Tools 2026')">Productivity</span>
+                        <span class="tag-chip" onclick="setTopic('Growth Strategy & B2B Marketing')">B2B Marketing</span>
+                        <span class="tag-chip" onclick="setTopic('Cybersecurity & Data Protection')">Cybersecurity</span>
+                    </div>
+                </div>
+
+                <!-- Row 1: Platform & Region -->
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="platformSelect">Format / Platform</label>
+                        <select id="platformSelect">
+                            <option value="tiktok">TikTok Video (0-3s Hook)</option>
+                            <option value="instagram_reels" selected>Instagram Reels (Audio + Hook)</option>
+                            <option value="instagram_carousel">Instagram Carousel (7 Slides)</option>
+                            <option value="linkedin">LinkedIn Post (Storytelling B2B)</option>
+                            <option value="youtube_shorts">YouTube Shorts (Fast Paced)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="geoSelect">Trends Region</label>
+                        <select id="geoSelect">
+                            <option value="AR">Argentina (AR)</option>
+                            <option value="AU">Australia (AU)</option>
+                            <option value="BR">Brazil (BR)</option>
+                            <option value="CA">Canada (CA)</option>
+                            <option value="CL">Chile (CL)</option>
+                            <option value="CO">Colombia (CO)</option>
+                            <option value="EC">Ecuador (EC)</option>
+                            <option value="FR">France (FR)</option>
+                            <option value="DE">Germany (DE)</option>
+                            <option value="IN">India (IN)</option>
+                            <option value="IT">Italy (IT)</option>
+                            <option value="JP">Japan (JP)</option>
+                            <option value="MX">Mexico (MX)</option>
+                            <option value="NL">Netherlands (NL)</option>
+                            <option value="PE">Peru (PE)</option>
+                            <option value="PL">Poland (PL)</option>
+                            <option value="PT">Portugal (PT)</option>
+                            <option value="KR">South Korea (KR)</option>
+                            <option value="ES" selected>Spain (ES)</option>
+                            <option value="GB">United Kingdom (GB)</option>
+                            <option value="US">United States (US)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Brand Memory Accordion -->
+                <div class="form-group memory-box">
+                    <details open>
+                        <summary>Brand Memory Bank (Persistent Context)</summary>
+                        <div class="memory-fields">
+                            <div class="memory-row">
+                                <div>
+                                    <label>Brand Tone:</label>
+                                    <input type="text" id="brandToneInput" value="Direct, Visionary & Analytical">
+                                </div>
+                                <div>
+                                    <label>Target Audience:</label>
+                                    <input type="text" id="brandAudienceInput" value="Founders, Executives and Tech Creators">
+                                </div>
+                            </div>
+                            <div>
+                                <label>Previous Winning Hooks:</label>
+                                <input type="text" id="winningHooksInput" value="Industry Myth vs Reality, 0-to-1 Case Study, Reverse Curiosity">
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Gemini API Key (Optional Override) -->
+                <div class="form-group apiKey-group">
+                    <details>
+                        <summary>Configure Gemini Key (Optional if set in .env)</summary>
+                        <div class="apiKey-input-box">
+                            <input type="password" id="apiKeyInput" placeholder="Paste your custom GEMINI_API_KEY here...">
+                            <small>If it's already set in <code>.env</code>, you can leave this field empty.</small>
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Action Button -->
+                <button type="submit" id="submitBtn" class="btn-primary">
+                    <span class="btn-text">Scan Radar & Run Agents</span>
+                </button>
+            </form>
+
+            <!-- Agent Swarm Architecture Specs -->
+            <div class="architecture-card">
+                <h3>Multi-Agent Swarm with Critic Loop:</h3>
+                <ul class="agent-list-preview">
+                    <li><span class="dot d1"></span> <strong>1. TrendScoutAgent:</strong> Extracts Google Trends signals via FastMCP.</li>
+                    <li><span class="dot d2"></span> <strong>2. OpportunityEngine:</strong> Computes Velocity (+%), Saturation, and Score.</li>
+                    <li><span class="dot d3"></span> <strong>3. ScriptHookAgent:</strong> Designs scripts with 0-3s hooks.</li>
+                    <li><span class="dot d4"></span> <strong>4. ViralityAuditorAgent (Critic):</strong> Audits quality and orders revisions if Score &lt; 80.</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Right Column: Mission Control Operations & Opportunity Radar -->
+        <section class="results-panel">
+
+            <!-- Empty State -->
+            <div id="emptyState" class="empty-state">
+                <div class="empty-icon">🛰️</div>
+                <h2>Opportunity Radar Standing By</h2>
+                <p>Enter your niche or target market on the left so the agent swarm can analyze real-time Google Trends signals and select the most profitable opportunity.</p>
+                <div class="feature-pills">
+                    <span>Live Signal Scanning</span>
+                    <span>Critic Self-Correction Loop</span>
+                    <span>Transparent Score Breakdown</span>
+                </div>
+            </div>
+
+            <!-- Live Agent War Room & Timeline -->
+            <div id="agentTimeline" class="agent-timeline hidden">
+                <div class="timeline-header">
+                    <div class="timeline-title">
+                        <span class="pulse-recording"></span>
+                        <h3>Live Operations Center (Multi-Agent Deliberation)</h3>
+                    </div>
+                    <div class="timeline-meta">
+                        <span id="loopCounter" class="loop-badge">Draft #1</span>
+                        <span id="overallTimer" class="timer-badge">0.0s</span>
+                    </div>
+                </div>
+
+                <!-- Activity Terminal Log -->
+                <div id="agentLiveTerminal" class="agent-terminal">
+                    <div class="terminal-line"><span class="t-time">[0.0s]</span> <span class="t-agent">System:</span> Initializing connection to FastMCP Server on port 8080...</div>
+                </div>
+            </div>
+
+            <!-- Final Content Output Container -->
+            <div id="outputContainer" class="output-container hidden">
+
+                <!-- Opportunity Radar Banner -->
+                <div class="radar-box">
+                    <div class="radar-header">
+                        <div class="radar-title-group">
+                            <span class="radar-tag">OPPORTUNITY DETECTED ON RADAR</span>
+                            <h2 id="radarTopicTitle">"Gemini Autonomous Multi-Agents"</h2>
+                        </div>
+                        <div class="radar-badges">
+                            <div id="radarLifecycleBadge" class="lifecycle-badge stage-emerging">🌱 EMERGING</div>
+                            <div id="radarActionBadge" class="action-badge act-now">
+                                ⚡ ACT NOW
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Grid -->
+                    <div class="radar-metrics-grid">
+                        <div class="metric-card">
+                            <span class="m-label">Search Velocity</span>
+                            <strong id="radarVelocity" class="m-val text-emerald">+418%</strong>
+                            <small class="m-sub">Velocity spike</small>
+                        </div>
+                        <div class="metric-card">
+                            <span class="m-label">Content Saturation</span>
+                            <strong id="radarSaturation" class="m-val text-cyan">LOW (28%)</strong>
+                            <small class="m-sub">Low competition</small>
+                        </div>
+                        <div class="metric-card">
+                            <span class="m-label">Opportunity Window</span>
+                            <strong id="radarWindow" class="m-val text-amber">~8-12 hours</strong>
+                            <small class="m-sub">Before saturating</small>
+                        </div>
+                        <div class="metric-card highlight-card">
+                            <span class="m-label">Opportunity Score</span>
+                            <div class="score-row">
+                                <strong id="radarTotalScore" class="m-val score-big">91</strong>
+                                <span class="score-max">/100</span>
+                            </div>
+                            <small class="m-sub" id="criticApprovalStatus">✓ Approved on Draft #2</small>
+                        </div>
+                    </div>
+
+                    <!-- Cross-Market Gaps -->
+                    <div id="crossMarketGapsBox" class="gaps-box hidden">
+                        <h4>Cross-Market Gaps (real trend, not yet visible)</h4>
+                        <div id="crossMarketGapsList"></div>
+                    </div>
+
+                    <!-- Transparent Score Breakdown Accordion -->
+                    <details class="score-breakdown-details">
+                        <summary>View Score Math Breakdown (100% Transparent)</summary>
+                        <div class="breakdown-grid" id="scoreBreakdownGrid">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </details>
+                </div>
+
+                <!-- Tabs Navigation -->
+                <div class="tabs-nav">
+                    <button class="tab-btn active" onclick="switchTab(event, 'tab-script')">Script & Scenes</button>
+                    <button class="tab-btn" onclick="switchTab(event, 'tab-caption')">Copy & Hashtags</button>
+                    <button class="tab-btn" onclick="switchTab(event, 'tab-visual')">Cover Prompt</button>
+                    <button class="tab-btn" onclick="switchTab(event, 'tab-critic')">Critic Loop & Signals</button>
+                </div>
+
+                <!-- Tab 1: Script & Scenes -->
+                <div id="tab-script" class="tab-content active">
+                    <div class="card-section">
+                        <div class="section-title-row">
+                            <h3>Psychological Retention Hook (0-3s):</h3>
+                            <button class="btn-copy" onclick="copyText('hookTextDisplay')">Copy Hook</button>
+                        </div>
+                        <blockquote id="hookTextDisplay" class="hook-quote">...</blockquote>
+                    </div>
+
+                    <div class="card-section">
+                        <h3>Scene / Slide Structure (Dynamic Pacing):</h3>
+                        <div id="scenesList" class="scenes-list">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="card-section">
+                        <h3>Call to Action (CTA):</h3>
+                        <p id="ctaTextDisplay" class="cta-box">...</p>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Caption & Hashtags -->
+                <div id="tab-caption" class="tab-content">
+                    <div class="card-section">
+                        <div class="section-title-row">
+                            <h3>Ready-to-Post Copy:</h3>
+                            <button class="btn-copy" onclick="copyText('captionTextDisplay')">Copy Caption</button>
+                        </div>
+                        <div id="captionTextDisplay" class="caption-display">...</div>
+                    </div>
+
+                    <div class="card-section">
+                        <h3>Strategic Hashtag Cluster (3 Tiers):</h3>
+                        <div class="hashtags-grid">
+                            <div class="tag-box">
+                                <h4>Broad Reach</h4>
+                                <div id="broadTags" class="tags-cloud"></div>
+                            </div>
+                            <div class="tag-box">
+                                <h4>Niche Specific</h4>
+                                <div id="nicheTags" class="tags-cloud"></div>
+                            </div>
+                            <div class="tag-box">
+                                <h4>Google Trend</h4>
+                                <div id="trendTags" class="tags-cloud"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Visual Directives -->
+                <div id="tab-visual" class="tab-content">
+                    <div class="card-section">
+                        <div class="section-title-row">
+                            <h3>Cover Prompt for Imagen 3 / Midjourney:</h3>
+                            <button class="btn-copy" onclick="copyText('coverPromptDisplay')">Copy Prompt</button>
+                        </div>
+                        <pre id="coverPromptDisplay" class="code-block">...</pre>
+                    </div>
+
+                    <div class="card-section">
+                        <h3>Color Palette & Moodboard:</h3>
+                        <p id="colorPaletteDisplay" class="palette-box">...</p>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Critic Audit & Evaluated Signals -->
+                <div id="tab-critic" class="tab-content">
+                    <div class="card-section">
+                        <h3>Critic Agent Verdict (Quality Audit):</h3>
+                        <div class="audit-grid">
+                            <div>
+                                <h4>Key Strengths:</h4>
+                                <ul id="strengthsList"></ul>
+                            </div>
+                            <div>
+                                <h4>Adjustments Applied in Self-Correction:</h4>
+                                <ul id="improvementsList"></ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-section">
+                        <h3>Revision Loop Timeline:</h3>
+                        <div id="revisionTimeline" class="revision-timeline">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </div>
+
+                    <div class="card-section">
+                        <h3>Trend Signals Evaluated by the Swarm:</h3>
+                        <div id="signalsTable" class="signals-table-box">
+                            <!-- Injected dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export Bar -->
+                <div class="export-bar">
+                    <button class="btn-secondary" onclick="exportCampaignJSON()">Export JSON</button>
+                    <button class="btn-secondary" onclick="exportCampaignMarkdown()">Export Markdown</button>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

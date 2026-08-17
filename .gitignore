@@ -1,0 +1,29 @@
+# Secrets - never commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+.pytest_cache/
+
+# Ledger data (real accumulated predictions - keep locally, decide at submission
+# time whether to ship data/ledger.db as evidence or regenerate it)
+data/*.log
+data/*backup*.db
+
+# Internal working notes (Spanish, for the developer only - not judged code,
+# and not translated on purpose so they stay a truthful build log). Includes
+# the brainstorming doc for OTHER hackathon submissions (Trusted Hire Mexico,
+# Minimum Viable ERP, Proof Arena) - not this project's business, and not
+# something a judge browsing this repo should see.
+BITACORA_PROYECTO.md
+PITCH_VIDEO_SCRIPT.md
+Resumen_Hackathon_Proyectos_Candidatos_2026.md
+
+# OS
+.DS_Store
+Thumbs.db
