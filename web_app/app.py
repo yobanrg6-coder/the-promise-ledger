@@ -63,6 +63,22 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 _request_log: dict[str, deque] = defaultdict(deque)
 
 
+def _resolve_client_ip(request: Request) -> str:
+    # Cloud Run terminates the connection at Google's front end and proxies
+    # to the container - request.client.host is the front end's internal
+    # address, identical for every caller, not the visitor's real IP. Behind
+    # any reverse proxy (Cloud Run included) the real client IP only survives
+    # in X-Forwarded-For (leftmost entry = original client). Without this,
+    # the "per-IP" limiter below is actually one shared global bucket: the
+    # first 10 requests from ANY combination of visitors in a 60s window
+    # would lock out everyone else, including judges loading the demo at the
+    # same time as any other visitor.
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def _check_rate_limit(client_ip: str) -> None:
     now = time.monotonic()
     log = _request_log[client_ip]
@@ -131,7 +147,7 @@ async def generate_campaign_stream(req: CampaignRequest, request: Request):
     """
     SSE Streaming endpoint that streams real-time deliberation events from the 4 agents.
     """
-    _check_rate_limit(request.client.host if request.client else "unknown")
+    _check_rate_limit(_resolve_client_ip(request))
     resolved_key = req.api_key or os.getenv("GEMINI_API_KEY")
 
     async def event_generator():
