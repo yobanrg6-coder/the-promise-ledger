@@ -34,7 +34,8 @@ class FirestoreBackend:
     """Real backend - one 'predictions' collection in the project's default Firestore database."""
 
     def __init__(self, project: str | None = None):
-        from google.cloud import firestore  # local import: keep Firestore an optional dependency for pure in-memory usage (e.g. offline tests)
+        # Local import: keeps Firestore an optional dependency for pure in-memory usage (e.g. offline tests).
+        from google.cloud import firestore
 
         self._client = firestore.Client(project=project) if project else firestore.Client()
         self._collection = self._client.collection(COLLECTION_NAME)

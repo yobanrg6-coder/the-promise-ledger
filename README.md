@@ -33,6 +33,7 @@ flowchart TD
         TrendsTool["📈 get_daily_trends(geo)"]
         IntentTool["🔍 get_rising_search_intent(keyword)"]
         RadarTool["🎯 get_grounded_opportunity_candidates(geo, keyword)"]
+        NicheTool["🐾 get_niche_trend_signals(keyword, geo)"]
         GapsTool["🌍 get_cross_market_gaps(baseline_geo, target_geo)"]
         LedgerTool["🔮 get_forecast_accuracy()"]
         BenchmarkTool["📊 get_virality_benchmarks(platform)"]
@@ -45,7 +46,7 @@ flowchart TD
 
     subgraph Ledger ["🔮 Forecast Ledger (no LLM — pure deterministic + HTTP)"]
         Predictor["ledger/predictor.py: emits & resolves\nfalsifiable predictions at 1h/4h/12h/24h"]
-        Store["ledger/store.py: SQLite (data/ledger.db)"]
+        Store["ledger/store.py: Firestore (Cloud Run's per-instance\nfilesystem is ephemeral, so a local DB file would be wiped)"]
         Cycle["ledger/run_cycle.py: scheduled every 6h"]
     end
 
@@ -81,7 +82,7 @@ Computed deterministically in `agents/scoring.py` from real signals — never gu
 
 ## 🔮 The Forecast Ledger
 
-The core differentiator: no competitor researched (VyralFlow, Content_Studio.ai, YoTrends, vidIQ, Virlo) publishes this as a product. Every candidate with real velocity and a real cross-market gap generates falsifiable predictions at **1h, 4h, 12h and 24h** horizons simultaneously, stored with a timestamp in `data/ledger.db`. A scheduled cycle (`ledger/run_cycle.py`, every 6 hours) resolves due predictions against a fresh real Trends pull and updates accumulated accuracy stats, exposed live via the `get_forecast_accuracy()` MCP tool. **Zero LLM calls** in this subsystem — pure deterministic computation + HTTP, so it's free, unlimited, and actually falsifiable instead of "the model says it remembers correctly."
+The core differentiator: no competitor researched (VyralFlow, Content_Studio.ai, YoTrends, vidIQ, Virlo) publishes this as a product. Every candidate with real velocity and a real cross-market gap generates falsifiable predictions at **1h, 4h, 12h and 24h** horizons simultaneously, stored with a timestamp in Firestore (see `ledger/README.md` for why this isn't a local SQLite file — Cloud Run's per-instance filesystem is ephemeral). A scheduled Cloud Run Job + Cloud Scheduler cycle (`ledger/run_cycle.py`, every 6 hours) resolves due predictions against a fresh real Trends pull and updates accumulated accuracy stats, exposed live via the `get_forecast_accuracy()` MCP tool. **Zero LLM calls** in this subsystem — pure deterministic computation + HTTP, so it's free, unlimited, and actually falsifiable instead of "the model says it remembers correctly."
 
 ---
 
@@ -89,7 +90,7 @@ The core differentiator: no competitor researched (VyralFlow, Content_Studio.ai,
 
 | Agent Name | Role & Responsibility | Core Tools / Engine |
 | :--- | :--- | :--- |
-| **1. 📈 TrendScoutAgent** | Discovers breakout Google searches, rising search intent, lifecycle stage and cross-market gaps in real time via the FastMCP server (real MCP protocol, `McpToolset`). | FastMCP Server (`get_grounded_opportunity_candidates`, `get_cross_market_gaps`) + `agents/scoring.py` |
+| **1. 📈 TrendScoutAgent** | Discovers breakout Google searches, rising search intent, lifecycle stage and cross-market gaps in real time via the FastMCP server (real MCP protocol, `McpToolset`). Also checks a short keyword it distills from the niche against `get_niche_trend_signals` so a narrow niche isn't limited to whatever generic national news is trending that day. | FastMCP Server (`get_grounded_opportunity_candidates`, `get_niche_trend_signals`, `get_cross_market_gaps`) + `agents/scoring.py` |
 | **2. 🎬 ScriptHookAgent** | Converts the ACT_NOW opportunity into a high-retention video/carousel script with a 0-3s hook. | Gemini + Pydantic `HookAndScriptResult` |
 | **3. 🛡️ ViralityAuditorAgent** | **Critic Loop:** adversarial audit of retention power, brand safety, anti-cliché rules; rejects with a quoted weak line + rewrite until virality score ≥ 80 (max 2 drafts). | Gemini + Pydantic `CriticAuditEvaluation` |
 | **4. 🎨 VisualCreativeAgent** | Generates Imagen/Midjourney cover prompts, color palettes, and tiered hashtag clusters for the **approved** script only. | Gemini + Pydantic `VisualDirectivesResult` |
@@ -132,27 +133,31 @@ Open your browser at **`http://127.0.0.1:8000`**.
 ```bash
 python ledger/run_cycle.py
 ```
-In normal operation this runs automatically every 6 hours via a scheduled task — see `ledger/run_cycle.bat`.
+Needs credentials for the Firestore project (or run it from an environment already authenticated to one — see `ledger/README.md`). In production this runs automatically every 6 hours via a Cloud Run Job triggered by Cloud Scheduler, not a local scheduled task.
 
 ### 5. Run the test suite
 ```bash
 pip install -r requirements-dev.txt
 pytest tests/
 ```
-39 tests: deterministic scoring (`test_scoring.py`), the ledger against a temporary DB with no network (`test_ledger.py`), and ADK agent construction (`test_agents_construction.py`).
+46 tests: deterministic scoring (`test_scoring.py`), the ledger against an in-memory fake backend with no network (`test_ledger.py`), and ADK agent construction (`test_agents_construction.py`).
 
 ---
 
 ## ☁️ Google Cloud Run Deployment
 
 ```bash
-# Build & Deploy to Google Cloud Run
-gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/topicahead
-gcloud run deploy topicahead \
-    --image gcr.io/YOUR_PROJECT_ID/topicahead \
-    --platform managed \
-    --allow-unauthenticated \
-    --set-env-vars GEMINI_API_KEY=your_key,MODEL=gemini-flash-lite-latest
+# Build & deploy directly from source - Cloud Run builds the container itself
+# from the Dockerfile, no local Docker or separate gcloud builds step needed.
+gcloud run deploy topicahead --source . --region=us-central1
+
+# The Gemini key is never passed as a plain --set-env-vars value (that leaks it
+# into shell history and Cloud Run's own config metadata) - store it in Secret
+# Manager once, then reference it by name on deploy:
+echo -n "your_actual_gemini_api_key" | gcloud secrets create gemini-api-key --data-file=-
+gcloud run deploy topicahead --source . --region=us-central1 \
+    --set-env-vars MODEL=gemini-flash-lite-latest \
+    --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 
 ---
