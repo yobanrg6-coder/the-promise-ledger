@@ -7,6 +7,11 @@ let currentCampaignData = null;
 let timerInterval = null;
 let startTime = 0;
 let revisionHistory = {}; // draft_number -> { script, audit }
+// Which pipeline stages (radar/script/critic/visual) have already played
+// their entrance animation this run - each plays once, the moment its real
+// agent_result event arrives, not all four flashing in together when
+// 'complete' fires at the very end of a 12-22s+ run.
+let revealedStages = new Set();
 // Tracks the in-flight /api/generate-stream request, if any. Without this, a
 // scan abandoned via Reset Session (or superseded by a new one) keeps
 // streaming in the background and its 'complete'/'decision_stop' event still
@@ -113,8 +118,22 @@ function addTerminalLog(agent, message, isCritic = false) {
         <span class="${isCritic ? 't-critic' : 't-agent'}">${escapeHtml(agent)}:</span>
         <span>${escapeHtml(message)}</span>
     `;
-    terminal.appendChild(line);
+    // Insert before the blinking cursor row (if a scan is running) so the
+    // cursor stays pinned to the bottom instead of getting pushed above new lines.
+    const cursorLine = terminal.querySelector('.term-cursor-line');
+    if (cursorLine) {
+        terminal.insertBefore(line, cursorLine);
+    } else {
+        terminal.appendChild(line);
+    }
     terminal.scrollTop = terminal.scrollHeight;
+}
+
+function playRevealAnimation(el) {
+    if (!el) return;
+    el.classList.remove('stage-reveal');
+    void el.offsetWidth; // force reflow so re-adding the class restarts the animation
+    el.classList.add('stage-reveal');
 }
 
 document.getElementById('campaignForm').addEventListener('submit', function (e) {
@@ -156,6 +175,12 @@ async function runCampaign(forcedTopic) {
 
     const terminal = document.getElementById('agentLiveTerminal');
     terminal.innerHTML = '';
+    const cursorLine = document.createElement('div');
+    cursorLine.className = 'terminal-line term-cursor-line';
+    cursorLine.innerHTML = `<span class="term-cursor">▋</span>`;
+    terminal.appendChild(cursorLine);
+
+    revealedStages = new Set();
 
     // Start Timer
     startTime = Date.now();
@@ -237,6 +262,8 @@ async function runCampaign(forcedTopic) {
             clearInterval(timerInterval);
             submitBtn.disabled = false;
             submitBtn.innerHTML = `<span class="btn-text">Scan New Target</span>`;
+            const cursorLine = terminal.querySelector('.term-cursor-line');
+            if (cursorLine) cursorLine.remove();
         }
     }
 }
@@ -250,19 +277,36 @@ function handleAgentEvent(event) {
             document.getElementById('loopCounter').innerText = `Draft #${event.draft}`;
         }
     } else if (event.type === 'agent_result') {
+        // Each branch renders its own real artifact card the moment this
+        // specific agent's result actually arrives (radar analysis, then
+        // the script draft, then the critic's verdict, then the visual
+        // directives) - this is what makes the agent-to-agent handoff
+        // visible in real time instead of everything appearing at once
+        // when 'complete' fires, potentially 12-22s+ later.
         if (event.agent === 'TrendScoutAgent') {
             const data = event.data;
             addTerminalLog("OpportunityEngine", `Winning Opportunity: "${data.selected_opportunity}" | Score: ${data.opportunity_radar.total_opportunity_score}/100 [Action: ${data.opportunity_radar.recommended_action}]`);
+            // A MONITOR/IGNORE verdict takes the decision_stop path instead
+            // (its own message, right after this one) - don't flash the
+            // ACT_NOW radar card first just to hide it again immediately.
+            if (data.opportunity_radar.recommended_action === 'ACT_NOW') {
+                renderRadarStage(data);
+            }
         } else if (event.agent === 'ScriptHookAgent') {
             const draft = event.data.draft_number;
             revisionHistory[draft] = revisionHistory[draft] || {};
             revisionHistory[draft].script = event.data;
+            renderScriptStage(event.data);
         } else if (event.agent === 'ViralityAuditorAgent') {
             const audit = event.data;
             const draft = audit.draft_evaluated;
             revisionHistory[draft] = revisionHistory[draft] || {};
             revisionHistory[draft].audit = audit;
             addTerminalLog("CriticAgent", `Draft #${audit.draft_evaluated} evaluation: Score ${audit.overall_virality_score}/100 -> ${audit.status}`, true);
+            renderCriticStage(audit);
+        } else if (event.agent === 'VisualCreativeAgent') {
+            addTerminalLog("VisualCreativeAgent", "Cover prompt, palette and hashtag clusters ready.");
+            renderVisualStage(event.data);
         }
     } else if (event.type === 'complete') {
         addTerminalLog("System", "Campaign & Radar Completed Successfully.");
@@ -380,17 +424,14 @@ document.addEventListener('click', function (e) {
     runCampaign(btn.dataset.topic);
 });
 
-function renderCompleteCampaign(payload) {
+// Stage 1/4 - fires the moment TrendScoutAgent's real result arrives, long
+// before the script/critic/visual stages even start.
+function renderRadarStage(trends) {
     const output = document.getElementById('outputContainer');
     output.classList.remove('hidden');
 
-    const trends = payload.trend_intelligence;
     const radar = trends.opportunity_radar;
-    const script = payload.script_and_content;
-    const visual = payload.visual_and_metadata;
-    const audit = payload.virality_audit;
 
-    // Render Opportunity Radar Banner
     document.getElementById('radarTopicTitle').innerText = `"${trends.selected_opportunity}"`;
     document.getElementById('radarVelocity').innerText = radar.search_velocity_percentage || '+420%';
     // saturation_score (0-15, see SATURATION_MAX in agents/scoring.py) is
@@ -400,7 +441,6 @@ function renderCompleteCampaign(payload) {
     document.getElementById('radarSaturation').innerText = `${radar.content_saturation_level} (${saturationPct}%)`;
     document.getElementById('radarWindow').innerText = radar.estimated_viral_window_hours || '8-12 hours';
     document.getElementById('radarTotalScore').innerText = radar.total_opportunity_score;
-    document.getElementById('criticApprovalStatus').innerText = `✓ Approved on Draft #${payload.total_revision_cycles || 1}`;
 
     const action = actionMeta(radar.recommended_action);
     const actionBadge = document.getElementById('radarActionBadge');
@@ -414,7 +454,6 @@ function renderCompleteCampaign(payload) {
 
     renderCrossMarketGaps('crossMarketGapsList', 'crossMarketGapsBox', trends.cross_market_gaps, trends.target_market_geo);
 
-    // Score Breakdown Accordion
     const breakdownGrid = document.getElementById('scoreBreakdownGrid');
     breakdownGrid.innerHTML = `
         <div class="breakdown-item"><span>Search Velocity:</span><strong>${radar.velocity_score}/25</strong></div>
@@ -425,7 +464,19 @@ function renderCompleteCampaign(payload) {
         <div class="breakdown-item"><span>Brand Safety:</span><strong>${radar.brand_safety_score}/10</strong></div>
     `;
 
-    // Tab 1: Script & Scenes
+    renderSignalsTable(trends.signals_evaluated);
+
+    if (!revealedStages.has('radar')) {
+        revealedStages.add('radar');
+        playRevealAnimation(output.querySelector('.radar-box'));
+        output.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+// Stage 2/4 - fires when ScriptHookAgent finishes a draft (may fire more
+// than once across revision loops; each redraw just refreshes the content,
+// the entrance animation itself only plays the first time this run).
+function renderScriptStage(script) {
     document.getElementById('hookTextDisplay').innerText = `"${script.hook_3s}"`;
     document.getElementById('ctaTextDisplay').innerText = script.call_to_action;
 
@@ -442,17 +493,22 @@ function renderCompleteCampaign(payload) {
         scenesContainer.appendChild(item);
     });
 
-    // Tab 2: Caption & Hashtags
     document.getElementById('captionTextDisplay').innerText = script.caption;
-    renderTagCloud('broadTags', visual.hashtags.broad_reach_tags);
-    renderTagCloud('nicheTags', visual.hashtags.niche_targeted_tags);
-    renderTagCloud('trendTags', visual.hashtags.trend_specific_tags);
 
-    // Tab 3: Visual Directives
-    document.getElementById('coverPromptDisplay').innerText = visual.cover_image_prompt;
-    document.getElementById('colorPaletteDisplay').innerText = visual.color_palette_mood;
+    if (!revealedStages.has('script')) {
+        revealedStages.add('script');
+        playRevealAnimation(document.getElementById('tab-script'));
+    }
+}
 
-    // Tab 4: Critic Audit & Signals
+// Stage 3/4 - fires on every Critic pass, including rejected drafts, so the
+// revision timeline visibly grows as the self-correction loop happens
+// instead of only appearing fully-formed at the end.
+function renderCriticStage(audit) {
+    document.getElementById('criticApprovalStatus').innerText = audit.status === 'APPROVED'
+        ? `✓ Approved on Draft #${audit.draft_evaluated}`
+        : `↻ Draft #${audit.draft_evaluated} needs revision...`;
+
     const strengthsUl = document.getElementById('strengthsList');
     strengthsUl.innerHTML = '';
     audit.strengths.forEach(str => {
@@ -471,10 +527,37 @@ function renderCompleteCampaign(payload) {
 
     renderRevisionTimeline();
 
-    renderSignalsTable(trends.signals_evaluated);
+    if (!revealedStages.has('critic')) {
+        revealedStages.add('critic');
+        playRevealAnimation(document.getElementById('tab-critic'));
+    }
+}
 
-    // Scroll into view
-    output.scrollIntoView({ behavior: 'smooth', block: 'start' });
+// Stage 4/4 - fires when VisualCreativeAgent finishes, the last real event
+// before 'complete'.
+function renderVisualStage(visual) {
+    document.getElementById('coverPromptDisplay').innerText = visual.cover_image_prompt;
+    document.getElementById('colorPaletteDisplay').innerText = visual.color_palette_mood;
+    renderTagCloud('broadTags', visual.hashtags.broad_reach_tags);
+    renderTagCloud('nicheTags', visual.hashtags.niche_targeted_tags);
+    renderTagCloud('trendTags', visual.hashtags.trend_specific_tags);
+
+    if (!revealedStages.has('visual')) {
+        revealedStages.add('visual');
+        playRevealAnimation(document.getElementById('tab-visual'));
+    }
+}
+
+// Final authoritative repaint from the complete payload - a safety net
+// ensuring the UI matches the true final state even if a client briefly
+// missed an intermediate SSE event, not the only place these render.
+function renderCompleteCampaign(payload) {
+    renderRadarStage(payload.trend_intelligence);
+    renderScriptStage(payload.script_and_content);
+    renderCriticStage(payload.virality_audit);
+    renderVisualStage(payload.visual_and_metadata);
+
+    document.getElementById('outputContainer').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderRevisionTimeline() {

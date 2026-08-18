@@ -537,6 +537,34 @@ input[type="text"]:focus, select:focus {
     font-weight: 700;
 }
 
+.term-cursor {
+    display: inline-block;
+    color: var(--accent-cyan);
+    animation: term-blink 1s step-start infinite;
+}
+
+@keyframes term-blink {
+    50% { opacity: 0; }
+}
+
+/* Each pipeline stage (Radar / Script / Critic / Visual) plays this once,
+   the moment its own real agent_result event arrives - not all four
+   flashing in together when the whole run finishes. This is what makes the
+   agent-to-agent handoff actually read as a handoff instead of a batch. */
+@keyframes stage-reveal {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.stage-reveal {
+    animation: stage-reveal 0.5s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .term-cursor { animation: none; opacity: 0.65; }
+    .stage-reveal { animation: none; }
+}
+
 /* ---------------- 🛰️ OPPORTUNITY RADAR BANNER ---------------- */
 .radar-box {
     background: linear-gradient(135deg, rgba(28, 28, 30, 0.9), rgba(0, 0, 0, 0.92));
