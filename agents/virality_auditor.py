@@ -43,13 +43,21 @@ Provide concrete, evidence-based strengths (quote the strongest line) and precis
 Output strictly conforming to the required schema.
 """
 
-def create_virality_auditor_agent(model_name: str | None = None) -> LlmAgent:
+def create_virality_auditor_agent(model_name: str | None = None, api_key: str | None = None) -> LlmAgent:
     model = model_name or os.getenv("MODEL", "gemini-flash-lite-latest")
-    
+    # api_key is bound directly into this agent's own genai Client via
+    # client_kwargs, never through the process-wide GEMINI_API_KEY env var -
+    # that would be shared, mutable state across every concurrent request
+    # this async server handles, so two callers with different keys (e.g. a
+    # judge pasting their own) could race and end up using each other's key.
+    gemini_kwargs: dict = {"model": model}
+    if api_key:
+        gemini_kwargs["client_kwargs"] = {"api_key": api_key}
+
     agent = LlmAgent(
         name="virality_auditor_agent",
         description="Audits content packages for virality score, hook power, and algorithmic optimization.",
-        model=Gemini(model=model),
+        model=Gemini(**gemini_kwargs),
         instruction=SYSTEM_INSTRUCTION,
         output_schema=CriticAuditEvaluation,
     )

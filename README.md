@@ -1,7 +1,7 @@
 # 🛸 TopicAhead: Autonomous Attention-Timing Intelligence
 
 [![Google ADK](https://img.shields.io/badge/Framework-Google%20ADK-4285F4?logo=google&logoColor=white)](https://github.com/google/adk)
-[![Model](https://img.shields.io/badge/LLM-Gemini-34A853?logo=google-gemini&logoColor=white)](https://aistudio.google.com/)
+[![Model](https://img.shields.io/badge/LLM-Gemini%20%2B%20Gemma-34A853?logo=google-gemini&logoColor=white)](https://aistudio.google.com/)
 [![MCP](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet)](https://modelcontextprotocol.io/)
 [![Cloud](https://img.shields.io/badge/Deployment-Google%20Cloud%20Run-FBBC05?logo=google-cloud&logoColor=white)](https://cloud.google.com/run)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -52,9 +52,12 @@ flowchart TD
 
     subgraph ExecutionLayer ["🤖 Execution Layer (only runs if verdict == ACT_NOW)"]
         Agent2["2. 🎬 ScriptHookAgent (0-3s Hooks)"]
-        Agent2 -->|"Draft Script"| Agent3["3. 🛡️ ViralityAuditorAgent (Critic, Score 0-100)"]
-        Agent3 -->|"Score < 80: Rejected + Revision"| Agent2
-        Agent3 -->|"Score ≥ 80: Approved"| Agent4["4. 🎨 VisualCreativeAgent (Prompts & Hashtags)"]
+        Agent2 -->|"Draft Script"| Agent3["3. 🛡️ ViralityAuditorAgent (Critic, Gemini)"]
+        Agent2 -->|"asyncio.gather - run in parallel"| Agent3b["3b. 🔁 GemmaAuditorAgent\nsame instruction/schema, different model: Gemma"]
+        Agent3 --> Reconcile["agents/scoring.py::reconcile_virality_audit\nconservative min() + union of reasons"]
+        Agent3b --> Reconcile
+        Reconcile -->|"Score < 80: Rejected + Revision"| Agent2
+        Reconcile -->|"Score ≥ 80: Approved"| Agent4["4. 🎨 VisualCreativeAgent (Prompts & Hashtags)"]
     end
 
     Scoring -->|"ACT_NOW"| Agent2
@@ -92,10 +95,11 @@ The core differentiator: no competitor researched (VyralFlow, Content_Studio.ai,
 | :--- | :--- | :--- |
 | **1. 📈 TrendScoutAgent** | Discovers breakout Google searches, rising search intent, lifecycle stage and cross-market gaps in real time via the FastMCP server (real MCP protocol, `McpToolset`). Also checks a short keyword it distills from the niche against `get_niche_trend_signals` so a narrow niche isn't limited to whatever generic national news is trending that day. | FastMCP Server (`get_grounded_opportunity_candidates`, `get_niche_trend_signals`, `get_cross_market_gaps`) + `agents/scoring.py` |
 | **2. 🎬 ScriptHookAgent** | Converts the ACT_NOW opportunity into a high-retention video/carousel script with a 0-3s hook. | Gemini + Pydantic `HookAndScriptResult` |
-| **3. 🛡️ ViralityAuditorAgent** | **Critic Loop:** adversarial audit of retention power, brand safety, anti-cliché rules; rejects with a quoted weak line + rewrite until virality score ≥ 80 (max 2 drafts). | Gemini + Pydantic `CriticAuditEvaluation` |
+| **3. 🛡️ ViralityAuditorAgent** | **Critic Loop:** adversarial audit of retention power, brand safety, anti-cliché rules; rejects with a quoted weak line + rewrite until the reconciled virality score ≥ 80 (max 2 drafts). | Gemini + Pydantic `CriticAuditEvaluation` |
+| **3b. 🔁 GemmaAuditorAgent** | **Independent second opinion on Gemma** (a genuinely different model family, run concurrently with the Critic via `asyncio.gather`): re-audits the exact same draft with the identical instruction/schema. A weak sub-score or a real rejection reason either model raises is never silently dropped — `agents/scoring.py::reconcile_virality_audit` takes the conservative `min()` of each sub-score and unions the rejection reasons, matching the Critic's own "adversarial by default" philosophy. Degrades to Gemini's read alone if Gemma is unavailable. | Gemma (`gemma-4-26b-a4b-it`) + Pydantic `CriticAuditEvaluation` |
 | **4. 🎨 VisualCreativeAgent** | Generates Imagen/Midjourney cover prompts, color palettes, and tiered hashtag clusters for the **approved** script only. | Gemini + Pydantic `VisualDirectivesResult` |
 
-All four run as real `google.adk` `LlmAgent`s executed through an `InMemoryRunner`, not a hand-rolled `google.genai` call disguised as ADK.
+All five run as real `google.adk` `LlmAgent`s executed through an `InMemoryRunner`, not a hand-rolled `google.genai` call disguised as ADK.
 
 ---
 

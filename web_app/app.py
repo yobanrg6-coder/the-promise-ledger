@@ -68,14 +68,21 @@ def _resolve_client_ip(request: Request) -> str:
     # to the container - request.client.host is the front end's internal
     # address, identical for every caller, not the visitor's real IP. Behind
     # any reverse proxy (Cloud Run included) the real client IP only survives
-    # in X-Forwarded-For (leftmost entry = original client). Without this,
-    # the "per-IP" limiter below is actually one shared global bucket: the
-    # first 10 requests from ANY combination of visitors in a 60s window
-    # would lock out everyone else, including judges loading the demo at the
-    # same time as any other visitor.
+    # in X-Forwarded-For. Without this, the "per-IP" limiter below is
+    # actually one shared global bucket: the first 10 requests from ANY
+    # combination of visitors in a 60s window would lock out everyone else,
+    # including judges loading the demo at the same time as any other
+    # visitor.
+    #
+    # The LEFTMOST entry is whatever the client itself sent (or fabricated -
+    # verified live: sending a fake X-Forwarded-For header from curl let a
+    # single caller bypass the limiter entirely by rotating a fake value on
+    # every request). Cloud Run's own front end appends the real client IP
+    # as the LAST entry in the chain and that part of the header cannot be
+    # supplied by the client, so the limiter has to key on the last value.
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+        return forwarded_for.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 

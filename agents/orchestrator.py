@@ -27,6 +27,7 @@ from pydantic import BaseModel, ValidationError
 
 # Ensure local imports work properly
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from gemma_auditor_agent import create_gemma_auditor_agent
 from schemas import (
     BrandMemory,
     CompleteCampaignPayload,
@@ -40,7 +41,7 @@ from scoring import (
     MIN_RELEVANCE_FOR_ACT_NOW,
     derive_recommended_action,
     find_cross_market_gaps,
-    recompute_virality_verdict,
+    reconcile_virality_audit,
 )
 from script_engineer import create_script_engineer_agent
 from trend_scout import create_trend_scout_agent
@@ -59,6 +60,12 @@ logger = logging.getLogger("topicahead.orchestrator")
 T = TypeVar("T", bound=BaseModel)
 
 MAX_AGENT_RETRIES = 2
+# GemmaAuditorAgent is a secondary, optional second opinion (see
+# _run_gemma_audit_or_degrade) - it already degrades to "no additional
+# reasons" on failure, so it gets a tighter budget than the primary Gemini
+# audit rather than sharing MAX_AGENT_RETRIES's full retry cost. Same
+# reasoning as the sibling projects (Trusted Hire Mexico, ScopeCouncil).
+GEMMA_CALL_TIMEOUT_SECONDS = 20.0
 APP_NAME = "topicahead"
 
 
@@ -76,7 +83,12 @@ class TopicAheadOrchestrator:
     1. TrendScoutAgent   - calls the FastMCP server (real MCP protocol) for grounded
                             trend signals, lifecycle stage, and cross-market gaps.
     2. ScriptHookAgent   - Psychological Retention Hooks & Scenes.
-    3. ViralityAuditorAgent - Critic & Automated Revision Loop if Score < 80.
+    3. ViralityAuditorAgent (Gemini) + GemmaAuditorAgent (Gemma) - independently
+       audit the same draft in parallel, two different model families asked the
+       identical adversarial question so a weak sub-score or rejection reason
+       either one raises is never silently dropped (agents/scoring.py::
+       reconcile_virality_audit). Automated Revision Loop if the reconciled
+       Score < 80.
     4. VisualCreativeAgent  - Imagen 3 / Midjourney Prompts & 3-Tier Hashtags.
     """
 
@@ -86,9 +98,12 @@ class TopicAheadOrchestrator:
             raise ConfigurationError(
                 "GEMINI_API_KEY is not set. Provide it via .env or the request's api_key field."
             )
-        # google-genai / google-adk both read GEMINI_API_KEY from the environment;
-        # this guarantees a per-request key override actually takes effect.
-        os.environ["GEMINI_API_KEY"] = self.api_key
+        # Deliberately NOT written to os.environ here: this orchestrator is
+        # constructed fresh per HTTP request in an async server that can
+        # interleave multiple in-flight requests, so a process-wide env var
+        # would be shared mutable state - each create_*_agent() call below
+        # binds self.api_key directly into that request's own genai Client
+        # instead.
 
         self.model_name = model or os.getenv("MODEL", "gemini-flash-lite-latest")
         # 8080 matches mcp_server/server.py's own default port for local dev;
@@ -203,7 +218,9 @@ class TopicAheadOrchestrator:
             )
         }
 
-        trend_scout_agent = create_trend_scout_agent(mcp_url=self.mcp_url, model_name=self.model_name)
+        trend_scout_agent = create_trend_scout_agent(
+            mcp_url=self.mcp_url, model_name=self.model_name, api_key=self.api_key
+        )
         forced_topic_instruction = (
             f"""
         The user already saw a full scan and explicitly chose a specific alternative from the
@@ -313,8 +330,21 @@ class TopicAheadOrchestrator:
         final_audit = None
         revision_instructions = ""
 
-        script_agent = create_script_engineer_agent(model_name=self.model_name)
-        critic_agent = create_virality_auditor_agent(model_name=self.model_name)
+        script_agent = create_script_engineer_agent(model_name=self.model_name, api_key=self.api_key)
+        critic_agent = create_virality_auditor_agent(model_name=self.model_name, api_key=self.api_key)
+        gemma_auditor_agent = create_gemma_auditor_agent(api_key=self.api_key)
+
+        async def _run_gemma_audit_or_degrade(prompt: str, draft_num: int) -> CriticAuditEvaluation | None:
+            try:
+                return await asyncio.wait_for(
+                    self._run_agent(
+                        gemma_auditor_agent, prompt, CriticAuditEvaluation, f"GemmaAuditorAgent-draft{draft_num}"
+                    ),
+                    timeout=GEMMA_CALL_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                logger.exception("GemmaAuditorAgent failed on draft %d; continuing with Gemini's audit alone", draft_num)
+                return None
 
         while current_draft_num <= max_revisions:
             yield {
@@ -358,6 +388,13 @@ class TopicAheadOrchestrator:
                 "draft": current_draft_num,
                 "message": f"[Critic Agent]: Auditing Draft #{current_draft_num} (hook power, retention, and compliance)..."
             }
+            yield {
+                "type": "status",
+                "agent": "GemmaAuditorAgent",
+                "stage": 3,
+                "draft": current_draft_num,
+                "message": f"[Second Opinion]: Independently re-auditing Draft #{current_draft_num} on a different model family (Gemma)..."
+            }
 
             prompt_audit = f"""
             Perform your uncompromising audit on Draft #{current_draft_num}:
@@ -366,24 +403,42 @@ class TopicAheadOrchestrator:
             - Brand Memory: {memory.model_dump_json()}
             """
 
-            current_audit = await self._run_agent(
-                critic_agent, prompt_audit, CriticAuditEvaluation, f"ViralityAuditorAgent-draft{current_draft_num}"
+            gemini_audit, gemma_audit = await asyncio.gather(
+                self._run_agent(
+                    critic_agent, prompt_audit, CriticAuditEvaluation, f"ViralityAuditorAgent-draft{current_draft_num}"
+                ),
+                _run_gemma_audit_or_degrade(prompt_audit, current_draft_num),
             )
-            current_audit.draft_evaluated = current_draft_num
+            gemini_audit.draft_evaluated = current_draft_num
 
-            # Never trust LLM arithmetic for the headline number or the gate
-            # decision - same principle already applied to the Opportunity
-            # Radar score above, now also applied to the Critic's verdict.
+            if gemma_audit is not None:
+                gemma_audit.draft_evaluated = current_draft_num
+                yield {
+                    "type": "agent_result",
+                    "agent": "GemmaAuditorAgent",
+                    "stage": 3,
+                    "draft": current_draft_num,
+                    "data": gemma_audit.model_dump()
+                }
+            else:
+                yield {
+                    "type": "status",
+                    "agent": "GemmaAuditorAgent",
+                    "stage": 3,
+                    "draft": current_draft_num,
+                    "message": "Gemma check unavailable this run - continuing with Gemini's audit alone."
+                }
+
+            # Never trust either model's self-reported total or gate decision
+            # verbatim, and never trust one model's read alone: the two
+            # independent audits are reconciled conservatively in Python
+            # (agents/scoring.py::reconcile_virality_audit), same principle
+            # already applied to the Opportunity Radar score above.
             script_text = " ".join([
                 current_script.hook_3s, current_script.call_to_action, current_script.caption,
                 *[scene.spoken_audio_or_text for scene in current_script.story_scenes],
             ])
-            verdict = recompute_virality_verdict(
-                current_audit.hook_strength, current_audit.retention_pacing,
-                current_audit.value_density, script_text,
-            )
-            current_audit.overall_virality_score = verdict["overall_virality_score"]
-            current_audit.status = verdict["status"]
+            current_audit = reconcile_virality_audit(gemini_audit, gemma_audit, script_text)
 
             yield {
                 "type": "agent_result",
@@ -423,7 +478,7 @@ class TopicAheadOrchestrator:
             "message": "Generating cover visual specification (Imagen 3) and 3-tier hashtag cluster..."
         }
 
-        visual_agent = create_visual_director_agent(model_name=self.model_name)
+        visual_agent = create_visual_director_agent(model_name=self.model_name, api_key=self.api_key)
         prompt_visual = f"""
         Based on the approved script:
         - Title: {final_script.title}

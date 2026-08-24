@@ -29,13 +29,21 @@ Responsibilities:
 Output strictly conforming to the provided Pydantic schema.
 """
 
-def create_visual_director_agent(model_name: str | None = None) -> LlmAgent:
+def create_visual_director_agent(model_name: str | None = None, api_key: str | None = None) -> LlmAgent:
     model = model_name or os.getenv("MODEL", "gemini-flash-lite-latest")
-    
+    # api_key is bound directly into this agent's own genai Client via
+    # client_kwargs, never through the process-wide GEMINI_API_KEY env var -
+    # that would be shared, mutable state across every concurrent request
+    # this async server handles, so two callers with different keys (e.g. a
+    # judge pasting their own) could race and end up using each other's key.
+    gemini_kwargs: dict = {"model": model}
+    if api_key:
+        gemini_kwargs["client_kwargs"] = {"api_key": api_key}
+
     agent = LlmAgent(
         name="visual_director_agent",
         description="Generates visual creative prompts, color palettes, and tiered hashtag clusters.",
-        model=Gemini(model=model),
+        model=Gemini(**gemini_kwargs),
         instruction=SYSTEM_INSTRUCTION,
         output_schema=VisualDirectivesResult,
     )

@@ -66,14 +66,24 @@ Instructions:
 9. Output your analysis conforming strictly to the provided output schema.
 """
 
-def create_trend_scout_agent(mcp_url: str | None = None, model_name: str | None = None) -> LlmAgent:
+def create_trend_scout_agent(
+    mcp_url: str | None = None, model_name: str | None = None, api_key: str | None = None
+) -> LlmAgent:
     url = mcp_url or os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8080/mcp")
     model = model_name or os.getenv("MODEL", "gemini-flash-lite-latest")
+    # api_key is bound directly into this agent's own genai Client via
+    # client_kwargs, never through the process-wide GEMINI_API_KEY env var -
+    # that would be shared, mutable state across every concurrent request
+    # this async server handles, so two callers with different keys (e.g. a
+    # judge pasting their own) could race and end up using each other's key.
+    gemini_kwargs: dict = {"model": model}
+    if api_key:
+        gemini_kwargs["client_kwargs"] = {"api_key": api_key}
 
     agent = LlmAgent(
         name="trend_scout_agent",
         description="Analyzes live Google Trends and search breakout queries to find high-velocity topics.",
-        model=Gemini(model=model),
+        model=Gemini(**gemini_kwargs),
         instruction=SYSTEM_INSTRUCTION,
         output_schema=TrendIntelligenceResult,
         tools=[

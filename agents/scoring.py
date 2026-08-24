@@ -12,8 +12,17 @@ is always summed here in Python, never trusted from the LLM, so the
 number on screen can never silently disagree with its own breakdown.
 """
 
+import os
 import re
+import sys
 from typing import Any
+
+# Guarantees `from schemas import ...` resolves regardless of how this module
+# is imported (bare, as orchestrator.py does, or as the `agents.scoring`
+# package test_scoring.py imports) - same defensive pattern virality_auditor.py
+# already uses for the same reason.
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from schemas import CriticAuditEvaluation
 
 _TRAFFIC_PATTERN = re.compile(r"([\d.]+)\s*([KM]?)\+?", re.IGNORECASE)
 _TRAFFIC_MULTIPLIERS = {"": 1, "K": 1_000, "M": 1_000_000}
@@ -178,6 +187,57 @@ def recompute_virality_verdict(
     score = max(0, min(100, score))
     status = "APPROVED" if (score >= 80 and not anti_cliche_triggered) else "NEEDS_REVISION"
     return {"overall_virality_score": score, "status": status, "anti_cliche_triggered": anti_cliche_triggered}
+
+
+def reconcile_virality_audit(
+    gemini_audit: CriticAuditEvaluation,
+    gemma_audit: "CriticAuditEvaluation | None",
+    script_text: str,
+) -> CriticAuditEvaluation:
+    """
+    Combine two independent, adversarial reads of the same draft - Gemini
+    (virality_auditor.py) and Gemma (gemma_auditor_agent.py) - into one
+    verdict. Conservative by design, matching the Critic's own "adversarial
+    by default" philosophy stated in its system prompt: a lenient model's
+    sub-score is never allowed to override a stricter one (min, not
+    average), and a rejection reason either model raised is always kept,
+    never silently dropped - same "union, not intersection" principle as
+    Trusted Hire Mexico's merge_scam_flags. Falls back to Gemini's read
+    alone when Gemma is unavailable (see orchestrator.py's degrade-safe
+    Gemma call).
+    """
+    if gemma_audit is None:
+        return gemini_audit
+
+    hook_strength = min(gemini_audit.hook_strength, gemma_audit.hook_strength)
+    retention_pacing = min(gemini_audit.retention_pacing, gemma_audit.retention_pacing)
+    value_density = min(gemini_audit.value_density, gemma_audit.value_density)
+    verdict = recompute_virality_verdict(hook_strength, retention_pacing, value_density, script_text)
+
+    rejection_reasons = list(gemini_audit.rejection_reasons)
+    for reason in gemma_audit.rejection_reasons:
+        if reason not in rejection_reasons:
+            rejection_reasons.append(reason)
+
+    strengths = list(gemini_audit.strengths)
+    for strength in gemma_audit.strengths:
+        if strength not in strengths:
+            strengths.append(strength)
+
+    return CriticAuditEvaluation(
+        draft_evaluated=gemini_audit.draft_evaluated,
+        hook_strength=hook_strength,
+        retention_pacing=retention_pacing,
+        value_density=value_density,
+        overall_virality_score=verdict["overall_virality_score"],
+        status=verdict["status"],
+        rejection_reasons=rejection_reasons,
+        strengths=strengths,
+        # Gemini's instructions, not a blend - a revision loop that mixes
+        # two different models' rewrite suggestions into one instruction
+        # would produce an incoherent prompt for ScriptHookAgent.
+        actionable_revision_instructions=gemini_audit.actionable_revision_instructions,
+    )
 
 
 def rank_and_ground_candidates(

@@ -54,13 +54,21 @@ Psychological Retention Principles you MUST follow:
 Output strictly according to the required schema.
 """
 
-def create_script_engineer_agent(model_name: str | None = None) -> LlmAgent:
+def create_script_engineer_agent(model_name: str | None = None, api_key: str | None = None) -> LlmAgent:
     model = model_name or os.getenv("MODEL", "gemini-flash-lite-latest")
-    
+    # api_key is bound directly into this agent's own genai Client via
+    # client_kwargs, never through the process-wide GEMINI_API_KEY env var -
+    # that would be shared, mutable state across every concurrent request
+    # this async server handles, so two callers with different keys (e.g. a
+    # judge pasting their own) could race and end up using each other's key.
+    gemini_kwargs: dict = {"model": model}
+    if api_key:
+        gemini_kwargs["client_kwargs"] = {"api_key": api_key}
+
     agent = LlmAgent(
         name="script_engineer_agent",
         description="Crafts high-retention video scripts and carousel outlines based on trend intelligence.",
-        model=Gemini(model=model),
+        model=Gemini(**gemini_kwargs),
         instruction=SYSTEM_INSTRUCTION,
         output_schema=HookAndScriptResult,
     )
