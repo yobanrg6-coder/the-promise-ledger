@@ -160,9 +160,13 @@ gcloud run deploy topicahead --source . --region=us-central1
 # Manager once, then reference it by name on deploy:
 echo -n "your_actual_gemini_api_key" | gcloud secrets create gemini-api-key --data-file=-
 gcloud run deploy topicahead --source . --region=us-central1 \
+    --min-instances=1 --max-instances=1 \
     --set-env-vars MODEL=gemini-flash-lite-latest \
     --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
+
+`--min-instances=1` keeps a warm instance running so judges never hit a cold-start abort
+(`"no available instance"` 500) on the first request after idle.
 
 ---
 
