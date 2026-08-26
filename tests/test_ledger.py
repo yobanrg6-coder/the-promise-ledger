@@ -153,11 +153,66 @@ def test_predictor_resolves_incorrect_when_topic_still_absent(monkeypatch):
         predictor.GoogleTrendsService, "fetch_daily_trending_topics",
         staticmethod(lambda geo: [{"topic": "Something Unrelated", "search_volume": "500+", "related_news": []}])
     )
+    # No comparative signal available (e.g. pytrends returned nothing real) -
+    # must not silently count as a pass.
+    monkeypatch.setattr(
+        predictor.GoogleTrendsService, "fetch_relative_search_ratio",
+        staticmethod(lambda candidate, anchor, geo: None)
+    )
+    monkeypatch.setattr(predictor.time, "sleep", lambda seconds: None)
 
     result = predictor.resolve_due_predictions(backend=backend)
     assert result["resolved_correct"] == 0
     assert result["resolved_incorrect"] == 1
     assert result["skipped_fetch_failed"] == 0
+
+
+def test_predictor_resolves_correct_via_relative_signal_when_not_in_top10(monkeypatch):
+    """
+    A topic can genuinely gain real search traction in the target market
+    without literally out-ranking that market's own top-10 obsessions. The
+    comparative check (see fetch_relative_search_ratio) is what catches that
+    - as long as it clears the real, non-trivial calibrated bar.
+    """
+    backend = store.InMemoryBackend()
+    store.record_prediction(
+        "Rising Elsewhere", "US", "MX", 1, "2000+", 15, "LOW", "ACCELERATING", 0.0, backend=backend
+    )
+
+    monkeypatch.setattr(
+        predictor.GoogleTrendsService, "fetch_daily_trending_topics",
+        staticmethod(lambda geo: [{"topic": "Weakest Real Trend", "search_volume": "500+", "related_news": []}])
+    )
+    monkeypatch.setattr(
+        predictor.GoogleTrendsService, "fetch_relative_search_ratio",
+        staticmethod(lambda candidate, anchor, geo: 0.4)  # above RELATIVE_SIGNAL_THRESHOLD (0.25)
+    )
+    monkeypatch.setattr(predictor.time, "sleep", lambda seconds: None)
+
+    result = predictor.resolve_due_predictions(backend=backend)
+    assert result["resolved_correct"] == 1
+    assert result["resolved_incorrect"] == 0
+
+
+def test_predictor_resolves_incorrect_when_relative_signal_too_weak(monkeypatch):
+    backend = store.InMemoryBackend()
+    store.record_prediction(
+        "Barely There", "US", "MX", 1, "2000+", 15, "LOW", "ACCELERATING", 0.0, backend=backend
+    )
+
+    monkeypatch.setattr(
+        predictor.GoogleTrendsService, "fetch_daily_trending_topics",
+        staticmethod(lambda geo: [{"topic": "Weakest Real Trend", "search_volume": "500+", "related_news": []}])
+    )
+    monkeypatch.setattr(
+        predictor.GoogleTrendsService, "fetch_relative_search_ratio",
+        staticmethod(lambda candidate, anchor, geo: 0.05)  # below RELATIVE_SIGNAL_THRESHOLD (0.25)
+    )
+    monkeypatch.setattr(predictor.time, "sleep", lambda seconds: None)
+
+    result = predictor.resolve_due_predictions(backend=backend)
+    assert result["resolved_correct"] == 0
+    assert result["resolved_incorrect"] == 1
 
 
 def test_predictor_skips_resolution_when_target_fetch_fails(monkeypatch):

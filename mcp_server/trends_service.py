@@ -158,6 +158,45 @@ class GoogleTrendsService:
             return empty
 
     @classmethod
+    def fetch_relative_search_ratio(cls, candidate: str, anchor: str, geo: str) -> float | None:
+        """
+        Real, comparative interest_over_time reading for `candidate` against
+        `anchor` in a single pytrends payload, so both series share the same
+        normalization base.
+
+        A lone keyword always gets normalized to its own peak as 100
+        regardless of true volume - verified live: "banco del bienestar" (a
+        Mexico-only welfare program with no real reason to be searched in the
+        US) still hit 100 when queried alone for geo=US. A fixed "is this
+        keyword's own interest above threshold X" check is therefore
+        meaningless. Pairing it against `anchor` - a topic this same geo's
+        own trending list already confirms is genuinely trending right now -
+        gives a real floor: querying the same irrelevant pair against a live
+        trending item correctly rounded to 0, while two genuinely-trending
+        items compared against each other landed in a real, non-zero,
+        non-100 range. See ledger/predictor.py's use of this for the
+        "reached real target-market search intensity even without cracking
+        the top-10" resolution path.
+
+        Returns candidate_peak / anchor_peak, or None if pytrends returns no
+        usable data for either series (network failure, or too little volume
+        for Google to report at all) - never a fabricated ratio.
+        """
+        try:
+            pytrends = TrendReq(hl="en", tz=360, timeout=(10, 20))
+            pytrends.build_payload([candidate, anchor], timeframe="now 1-d", geo=geo.upper())
+            df = pytrends.interest_over_time()
+            if df.empty or anchor not in df.columns or candidate not in df.columns:
+                return None
+            anchor_peak = float(df[anchor].max())
+            if anchor_peak == 0:
+                return None
+            return float(df[candidate].max()) / anchor_peak
+        except Exception as e:  # noqa: BLE001 - unofficial pytrends endpoint: network/rate-limit/parsing failures all fold into "no signal available"
+            print(f"[TrendsService] Relative search ratio warning ({candidate!r} vs {anchor!r}, geo={geo}): {e}")
+            return None
+
+    @classmethod
     def get_platform_virality_benchmarks(cls, platform: str) -> dict[str, Any]:
         """
         Get algorithmic retention metrics and optimal structure based on target platform.

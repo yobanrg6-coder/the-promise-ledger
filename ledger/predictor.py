@@ -11,6 +11,7 @@ target_geo's trending list at (or after) the deadline and checks for real.
 
 import os
 import sys
+import time
 from typing import Any
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -48,6 +49,22 @@ MIN_RELATED_NEWS_TO_PREDICT = 1
 # every cycle into up to 4 independent, faster-resolving falsifiable claims -
 # still real (each is checked against a fresh Trends pull), just more of them.
 FORECAST_HORIZONS_HOURS = [1, 4, 12, 24]
+
+# Provisional calibration from a single live comparison (26-ago-2026): two
+# genuinely real, currently-trending US topics compared against each other
+# landed at ~0.15-0.3, while a structurally irrelevant topic ("banco del
+# bienestar" vs a real US trending item) landed at 0.0. Set below that real
+# range so genuine near-misses aren't punished, well above 0 so pure noise
+# still fails. Revisit once enough RELATIVE_SEARCH_SIGNAL resolutions have
+# accumulated to calibrate against real correct/incorrect outcomes instead of
+# one live sample - see fetch_relative_search_ratio's own docstring for why a
+# single-keyword threshold isn't usable at all.
+RELATIVE_SIGNAL_THRESHOLD = 0.25
+# pytrends is an unofficial, rate-limited endpoint - only called for
+# candidates that already missed the free exact top-10 check, but still
+# throttled between calls so an unattended 6h cycle with many due
+# predictions doesn't hammer it.
+RELATIVE_SIGNAL_THROTTLE_SECONDS = 2.0
 
 
 def _normalize(topic: str) -> str:
@@ -145,10 +162,33 @@ def resolve_due_predictions(backend: store.PredictionBackend | None = None) -> d
                 backend=backend,
             )
             resolved_correct += 1
+            continue
+
+        # Didn't crack the target's own top-10, but that's a very high bar -
+        # fall back to a real, comparative search-interest check against the
+        # target's own weakest currently-trending topic (see
+        # fetch_relative_search_ratio's docstring for why this has to be a
+        # comparison, never a single-keyword threshold).
+        ratio = None
+        anchor_topic = target_trends[-1].get("topic", "") if target_trends else ""
+        if anchor_topic and _normalize(anchor_topic) != _normalize(prediction["topic"]):
+            ratio = GoogleTrendsService.fetch_relative_search_ratio(prediction["topic"], anchor_topic, target_geo)
+            time.sleep(RELATIVE_SIGNAL_THROTTLE_SECONDS)
+
+        if ratio is not None and ratio >= RELATIVE_SIGNAL_THRESHOLD:
+            store.resolve_prediction(
+                prediction["id"], "CORRECT",
+                f"Not in {target_geo}'s own top-10, but reached {ratio:.0%} of the real search "
+                f"interest of {anchor_topic!r} ({target_geo}'s own weakest currently-trending topic) "
+                "during the window.",
+                backend=backend,
+            )
+            resolved_correct += 1
         else:
+            detail = f" (reached {ratio:.0%} of {anchor_topic!r}, below the {RELATIVE_SIGNAL_THRESHOLD:.0%} bar)" if ratio is not None else ""
             store.resolve_prediction(
                 prediction["id"], "INCORRECT",
-                f"Still not visible in {target_geo}'s trending list as of resolution time.",
+                f"Still not visible in {target_geo}'s trending list as of resolution time{detail}.",
                 backend=backend,
             )
             resolved_incorrect += 1
