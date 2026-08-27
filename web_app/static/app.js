@@ -1,5 +1,5 @@
 /**
- * TopicAhead - Mission Control Frontend Controller
+ * The Promise Ledger - Mission Control Frontend Controller
  * Manages Opportunity Radar visualization, Critic Revision Loops, and Real-Time Event Streaming.
  */
 
@@ -655,7 +655,7 @@ function exportCampaignJSON() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `topicahead_campaign_${Date.now()}.json`;
+    a.download = `promise_ledger_campaign_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -663,7 +663,7 @@ function exportCampaignJSON() {
 function exportCampaignMarkdown() {
     if (!currentCampaignData) return;
     const data = currentCampaignData;
-    const md = `# TopicAhead: Opportunity & Campaign Report
+    const md = `# The Promise Ledger: Opportunity & Campaign Report
 **Opportunity:** ${data.trend_intelligence.selected_opportunity}
 **Opportunity Score:** ${data.trend_intelligence.opportunity_radar.total_opportunity_score}/100 (${data.trend_intelligence.opportunity_radar.recommended_action})
 **Search Velocity:** ${data.trend_intelligence.opportunity_radar.search_velocity_percentage}
@@ -711,7 +711,7 @@ ${data.visual_and_metadata.cover_image_prompt}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `topicahead_campaign_${Date.now()}.md`;
+    a.download = `promise_ledger_campaign_${Date.now()}.md`;
     a.click();
     URL.revokeObjectURL(url);
 }

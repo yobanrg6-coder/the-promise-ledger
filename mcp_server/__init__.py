@@ -1,1 +1,1 @@
-"""TopicAhead - MCP Server Package"""
+"""The Promise Ledger - MCP Server Package"""

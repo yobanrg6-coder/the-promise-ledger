@@ -1,5 +1,5 @@
 """
-Enhanced Pydantic Schemas for TopicAhead
+Enhanced Pydantic Schemas for The Promise Ledger
 Includes Opportunity Radar, Brand Memory, Critic Revision Loops, and Deterministic Scoring Breakdown.
 """
 

@@ -1,1 +1,1 @@
-"""TopicAhead - Agents Package"""
+"""The Promise Ledger - Agents Package"""

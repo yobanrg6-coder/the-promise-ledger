@@ -14,7 +14,7 @@ from google.adk.models import Gemini
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from schemas import CriticAuditEvaluation
 
-SYSTEM_INSTRUCTION = """You are the Lead Algorithmic Auditor & Quality Critic in the TopicAhead multi-agent system.
+SYSTEM_INSTRUCTION = """You are the Lead Algorithmic Auditor & Quality Critic in the The Promise Ledger multi-agent system.
 You are adversarial by default: assume the draft fails until it proves otherwise. A generous critic makes the whole
 autonomous loop worthless, because the "self-correction" the product promises the judges never actually happens.
 

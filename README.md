@@ -1,4 +1,4 @@
-# 🛸 TopicAhead: Autonomous Attention-Timing Intelligence
+# 🛸 The Promise Ledger: Autonomous Attention-Timing Intelligence
 
 [![Google ADK](https://img.shields.io/badge/Framework-Google%20ADK-4285F4?logo=google&logoColor=white)](https://github.com/google/adk)
 [![Model](https://img.shields.io/badge/LLM-Gemini%20%2B%20Gemma-34A853?logo=google-gemini&logoColor=white)](https://aistudio.google.com/)
@@ -18,7 +18,7 @@ Trend tools that just say "this is trending right now, here's a caption" are a s
 2. **No one verifies their own calls.** Every trend tool markets confidence; none of them publish a falsifiable record of whether their calls were actually right.
 3. **Cross-market timing is invisible.** A topic trending in one market today is often not yet visible in another — a real, observable window that generic trend feeds don't surface.
 
-**TopicAhead** is an **Attention Intelligence Layer**: it scores a topic's lifecycle phase and cross-market visibility gap from real signals, renders a deterministic **ACT_NOW / MONITOR / IGNORE** verdict, and — its core differentiator — logs every prediction it makes to a **Forecast Ledger** that resolves itself against real data later, so its accuracy is a checkable number, not a marketing claim. Content generation (script, critic audit, visual direction) is a secondary **Execution Layer** that only runs when the verdict is `ACT_NOW`.
+**The Promise Ledger** is an **Attention Intelligence Layer**: it scores a topic's lifecycle phase and cross-market visibility gap from real signals, renders a deterministic **ACT_NOW / MONITOR / IGNORE** verdict, and — its core differentiator — logs every prediction it makes to a **Forecast Ledger** that resolves itself against real data later, so its accuracy is a checkable number, not a marketing claim. Content generation (script, critic audit, visual direction) is a secondary **Execution Layer** that only runs when the verdict is `ACT_NOW`.
 
 ---
 
@@ -27,7 +27,7 @@ Trend tools that just say "this is trending right now, here's a caption" are a s
 ```mermaid
 flowchart TD
     User["👤 User"] --> WebUI["🖥️ Interactive Studio (FastAPI + JS)"]
-    WebUI --> Orchestrator["🧠 TopicAheadOrchestrator (Google ADK Root)"]
+    WebUI --> Orchestrator["🧠 PromiseLedgerOrchestrator (Google ADK Root)"]
 
     subgraph MCPLayer ["🔌 FastMCP Server"]
         TrendsTool["📈 get_daily_trends(geo)"]
@@ -69,7 +69,7 @@ flowchart TD
     Output --> WebUI
 ```
 
-![TopicAhead Architecture Diagram](docs/architecture.jpg)
+![The Promise Ledger Architecture Diagram](docs/architecture.jpg)
 
 ---
 
@@ -111,8 +111,8 @@ All five run as real `google.adk` `LlmAgent`s executed through an `InMemoryRunne
 
 ### 1. Clone & Install Dependencies
 ```bash
-git clone https://github.com/yobanrg6-coder/TopicAhead.git
-cd TopicAhead
+git clone https://github.com/yobanrg6-coder/The Promise Ledger.git
+cd The Promise Ledger
 pip install -r requirements.txt
 ```
 
@@ -153,13 +153,13 @@ pytest tests/
 ```bash
 # Build & deploy directly from source - Cloud Run builds the container itself
 # from the Dockerfile, no local Docker or separate gcloud builds step needed.
-gcloud run deploy topicahead --source . --region=us-central1
+gcloud run deploy promise_ledger --source . --region=us-central1
 
 # The Gemini key is never passed as a plain --set-env-vars value (that leaks it
 # into shell history and Cloud Run's own config metadata) - store it in Secret
 # Manager once, then reference it by name on deploy:
 echo -n "your_actual_gemini_api_key" | gcloud secrets create gemini-api-key --data-file=-
-gcloud run deploy topicahead --source . --region=us-central1 \
+gcloud run deploy promise_ledger --source . --region=us-central1 \
     --min-instances=1 --max-instances=1 \
     --set-env-vars MODEL=gemini-flash-lite-latest \
     --set-secrets GEMINI_API_KEY=gemini-api-key:latest

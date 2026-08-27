@@ -1,1 +1,1 @@
-"""TopicAhead - Web App Package"""
+"""The Promise Ledger - Web App Package"""

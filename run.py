@@ -1,5 +1,5 @@
 """
-TopicAhead - Master Execution Entrypoint
+The Promise Ledger - Master Execution Entrypoint
 Starts both the FastMCP Server and the FastAPI Web Studio, and refuses to boot
 a broken configuration silently (missing API key, MCP server that never comes up).
 """
@@ -61,7 +61,8 @@ def wait_for_mcp_server(mcp_url: str, timeout_seconds: int = MCP_READY_TIMEOUT_S
 def main():
     print("""
     ==================================================================
-      TOPICAHEAD - AUTONOMOUS ATTENTION-TIMING INTELLIGENCE
+      THE PROMISE LEDGER - MACHINE-VERIFIABLE ACCOUNTABILITY FOR
+      PUBLIC PRODUCT PROMISES
       Google Cloud "All Things Agentic" Hackathon Submission ($180k)
     ==================================================================
     """)

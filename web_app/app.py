@@ -1,5 +1,5 @@
 """
-FastAPI Backend Application - TopicAhead
+FastAPI Backend Application - The Promise Ledger
 Serves the modern web UI and provides SSE streaming endpoints for multi-agent execution.
 """
 
@@ -21,17 +21,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("topicahead")
+logger = logging.getLogger("promise_ledger")
 
 # Ensure local imports work properly
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(PROJECT_ROOT)
-from agents.orchestrator import TopicAheadOrchestrator
+from agents.orchestrator import PromiseLedgerOrchestrator
 
 load_dotenv()
 
 app = FastAPI(
-    title="TopicAhead Studio",
+    title="The Promise Ledger Studio",
     description="Autonomous Attention-Timing Intelligence Studio powered by Google ADK & MCP",
     version="1.0.0"
 )
@@ -138,13 +138,13 @@ async def serve_dashboard():
     if os.path.exists(index_file):
         async with aiofiles.open(index_file, "r", encoding="utf-8") as f:
             return await f.read()
-    return "<h1>TopicAhead - Web Dashboard Loading...</h1>"
+    return "<h1>The Promise Ledger - Web Dashboard Loading...</h1>"
 
 @app.get("/api/health")
 async def health_check():
     return {
         "status": "online",
-        "service": "TopicAhead Studio",
+        "service": "The Promise Ledger Studio",
         "model": os.getenv("MODEL", "gemini-flash-lite-latest"),
         "mcp_server": os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8080/mcp")
     }
@@ -171,9 +171,9 @@ async def generate_campaign_stream(req: CampaignRequest, request: Request):
             return
 
         try:
-            orchestrator = TopicAheadOrchestrator(api_key=resolved_key)
+            orchestrator = PromiseLedgerOrchestrator(api_key=resolved_key)
         except Exception:
-            logger.exception("Failed to initialize TopicAheadOrchestrator")
+            logger.exception("Failed to initialize PromiseLedgerOrchestrator")
             yield f"data: {json.dumps({'type': 'error', 'message': 'Could not initialize the orchestrator. Check that the Gemini API key is valid.'}, ensure_ascii=False)}\n\n"
             return
 

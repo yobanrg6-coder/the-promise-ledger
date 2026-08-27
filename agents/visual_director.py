@@ -14,7 +14,7 @@ from google.adk.models import Gemini
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from schemas import VisualDirectivesResult
 
-SYSTEM_INSTRUCTION = """You are the Creative Director & Visual Strategist in the TopicAhead multi-agent system.
+SYSTEM_INSTRUCTION = """You are the Creative Director & Visual Strategist in the The Promise Ledger multi-agent system.
 Your mission is to take the retention script and trend intelligence to produce the ultimate visual and metadata package.
 
 Responsibilities:

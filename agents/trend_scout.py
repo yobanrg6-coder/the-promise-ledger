@@ -14,7 +14,7 @@ from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from schemas import TrendIntelligenceResult
 
-SYSTEM_INSTRUCTION = """You are the Senior Trend Intelligence Scout in the TopicAhead multi-agent system.
+SYSTEM_INSTRUCTION = """You are the Senior Trend Intelligence Scout in the The Promise Ledger multi-agent system.
 Your mission is to uncover what real humans are actively searching for on Google and social platforms right now.
 
 Instructions:

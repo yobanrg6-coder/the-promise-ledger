@@ -1,5 +1,5 @@
 """
-Autonomous Master Orchestrator - TopicAhead
+Autonomous Master Orchestrator - The Promise Ledger
 Features:
 - Real Google ADK execution: every agent runs through an ADK LlmAgent + Runner,
   not a hand-rolled google.genai call.
@@ -55,7 +55,7 @@ from google.genai import types
 from mcp_server.trends_service import GoogleTrendsService
 
 load_dotenv()
-logger = logging.getLogger("topicahead.orchestrator")
+logger = logging.getLogger("promise_ledger.orchestrator")
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -66,7 +66,7 @@ MAX_AGENT_RETRIES = 2
 # audit rather than sharing MAX_AGENT_RETRIES's full retry cost. Same
 # reasoning as the sibling projects (Trusted Hire Mexico, ScopeCouncil).
 GEMMA_CALL_TIMEOUT_SECONDS = 20.0
-APP_NAME = "topicahead"
+APP_NAME = "promise_ledger"
 
 
 class AgentExecutionError(RuntimeError):
@@ -77,7 +77,7 @@ class ConfigurationError(RuntimeError):
     """Raised when the orchestrator is misconfigured (e.g. missing API key)."""
 
 
-class TopicAheadOrchestrator:
+class PromiseLedgerOrchestrator:
     """
     Autonomous Multi-Agent Orchestrator, all four stages run as real ADK agents:
     1. TrendScoutAgent   - calls the FastMCP server (real MCP protocol) for grounded
@@ -128,7 +128,7 @@ class TopicAheadOrchestrator:
 
     async def _run_agent_once(self, agent, prompt: str, output_model: type[T], label: str) -> T:
         runner = InMemoryRunner(agent=agent, app_name=APP_NAME)
-        user_id = "topicahead-user"
+        user_id = "promise-ledger-user"
         session_id = f"{label}-{uuid.uuid4().hex[:10]}"
 
         await runner.session_service.create_session(

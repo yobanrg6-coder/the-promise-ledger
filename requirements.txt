@@ -1,4 +1,4 @@
-# TopicAhead - Dependencies
+# The Promise Ledger - Dependencies
 google-genai>=1.0.0
 google-adk>=1.13.0
 fastmcp>=2.11.0

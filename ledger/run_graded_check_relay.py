@@ -26,7 +26,7 @@ import predictor
 import store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("topicahead.ledger.relay")
+logger = logging.getLogger("promise_ledger.ledger.relay")
 
 
 def main():

@@ -17,7 +17,7 @@ import predictor
 import store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("topicahead.ledger")
+logger = logging.getLogger("promise_ledger.ledger")
 
 # Every tracked market predicts crossing into ALL the others at once (see
 # agents/scoring.py::find_multi_target_gaps) instead of a fixed list of

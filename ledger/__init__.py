@@ -1,1 +1,1 @@
-"""TopicAhead - Falsifiable Prediction Ledger"""
+"""The Promise Ledger - Falsifiable Prediction Ledger"""

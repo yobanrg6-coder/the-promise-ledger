@@ -1,2 +1,2 @@
 @echo off
-"D:\TopicAhead\venv\Scripts\python.exe" "D:\TopicAhead\ledger\run_cycle.py" >> "D:\TopicAhead\data\ledger_cycle.log" 2>&1
+"D:\The Promise Ledger\venv\Scripts\python.exe" "D:\The Promise Ledger\ledger\run_cycle.py" >> "D:\The Promise Ledger\data\ledger_cycle.log" 2>&1

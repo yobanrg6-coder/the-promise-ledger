@@ -1,5 +1,5 @@
 """
-FastMCP Server - TopicAhead
+FastMCP Server - The Promise Ledger
 Exposes live Google Trends, Breakout Queries, and Platform Virality Benchmarks to ADK Agents.
 """
 
@@ -33,7 +33,7 @@ from ledger import store as ledger_store
 load_dotenv()
 
 # Initialize FastMCP Server
-mcp = FastMCP("TopicAhead Intelligence Server")
+mcp = FastMCP("The Promise Ledger Intelligence Server")
 
 @mcp.tool()
 def get_daily_trends(geo: str = "ES") -> list:
@@ -131,5 +131,5 @@ def get_virality_benchmarks(platform: str = "instagram_reels") -> dict:
 if __name__ == "__main__":
     host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
     port = int(os.getenv("MCP_SERVER_PORT", "8080"))
-    print(f"Starting TopicAhead FastMCP Server on http://{host}:{port}/mcp ...")
+    print(f"Starting The Promise Ledger FastMCP Server on http://{host}:{port}/mcp ...")
     mcp.run(transport="streamable-http", host=host, port=port)

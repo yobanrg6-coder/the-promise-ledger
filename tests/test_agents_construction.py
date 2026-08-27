@@ -31,7 +31,7 @@ def test_all_five_agents_construct_and_run_with_a_runner():
         create_visual_director_agent(),
     ]
     for agent in agents:
-        runner = InMemoryRunner(agent=agent, app_name="topicahead-test")
+        runner = InMemoryRunner(agent=agent, app_name="promise-ledger-test")
         assert runner.agent is agent
         assert runner.session_service is not None
         assert agent.model is not None
