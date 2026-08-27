@@ -55,7 +55,7 @@ class AgentExecutionError(RuntimeError):
 class PromiseLedgerOrchestrator:
     def __init__(self, api_key: str | None = None, model: str | None = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self.model_name = model or os.getenv("MODEL", "gemini-flash-lite-latest")
+        self.model_name = model or os.getenv("MODEL", "gemini-3.5-flash-lite")
         if not self.api_key:
             raise AgentExecutionError("GEMINI_API_KEY is not set")
 

@@ -30,7 +30,7 @@ load_dotenv()
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-MODEL = os.getenv("MODEL", "gemini-flash-lite-latest")
+MODEL = os.getenv("MODEL", "gemini-3.5-flash-lite")
 TODAY = dt.date(2026, 8, 27)  # scenario "today"
 
 

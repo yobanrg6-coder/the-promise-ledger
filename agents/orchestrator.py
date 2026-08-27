@@ -105,7 +105,7 @@ class PromiseLedgerOrchestrator:
         # binds self.api_key directly into that request's own genai Client
         # instead.
 
-        self.model_name = model or os.getenv("MODEL", "gemini-flash-lite-latest")
+        self.model_name = model or os.getenv("MODEL", "gemini-3.5-flash-lite")
         # 8080 matches mcp_server/server.py's own default port for local dev;
         # Docker/Cloud Run always overrides this via an explicit env var.
         self.mcp_url = mcp_url or os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8080/mcp")

@@ -70,7 +70,7 @@ def create_trend_scout_agent(
     mcp_url: str | None = None, model_name: str | None = None, api_key: str | None = None
 ) -> LlmAgent:
     url = mcp_url or os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8080/mcp")
-    model = model_name or os.getenv("MODEL", "gemini-flash-lite-latest")
+    model = model_name or os.getenv("MODEL", "gemini-3.5-flash-lite")
     # api_key is bound directly into this agent's own genai Client via
     # client_kwargs, never through the process-wide GEMINI_API_KEY env var -
     # that would be shared, mutable state across every concurrent request

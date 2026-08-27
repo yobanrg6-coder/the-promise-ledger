@@ -44,7 +44,7 @@ Output strictly conforming to the required schema.
 """
 
 def create_virality_auditor_agent(model_name: str | None = None, api_key: str | None = None) -> LlmAgent:
-    model = model_name or os.getenv("MODEL", "gemini-flash-lite-latest")
+    model = model_name or os.getenv("MODEL", "gemini-3.5-flash-lite")
     # api_key is bound directly into this agent's own genai Client via
     # client_kwargs, never through the process-wide GEMINI_API_KEY env var -
     # that would be shared, mutable state across every concurrent request

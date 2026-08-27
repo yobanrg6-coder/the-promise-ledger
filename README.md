@@ -1,7 +1,7 @@
 # 🛸 The Promise Ledger: Autonomous Attention-Timing Intelligence
 
 [![Google ADK](https://img.shields.io/badge/Framework-Google%20ADK-4285F4?logo=google&logoColor=white)](https://github.com/google/adk)
-[![Model](https://img.shields.io/badge/LLM-Gemini%20%2B%20Gemma-34A853?logo=google-gemini&logoColor=white)](https://aistudio.google.com/)
+[![Model](https://img.shields.io/badge/LLM-Gemini%203.5%20%2B%20Gemma-34A853?logo=google-gemini&logoColor=white)](https://aistudio.google.com/)
 [![MCP](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet)](https://modelcontextprotocol.io/)
 [![Cloud](https://img.shields.io/badge/Deployment-Google%20Cloud%20Run-FBBC05?logo=google-cloud&logoColor=white)](https://cloud.google.com/run)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -123,9 +123,9 @@ cp .env.example .env
 Edit `.env` and set your key:
 ```env
 GEMINI_API_KEY=your_actual_gemini_api_key
-MODEL=gemini-flash-lite-latest
+MODEL=gemini-3.5-flash-lite
 ```
-`gemini-flash-lite-latest` is the default because it proved reliable under this project's tool-calling + large structured-output load; `gemini-flash-latest` returned 503 "high demand" repeatedly under the same load in testing.
+`gemini-3.5-flash-lite` is pinned to an explicit id to satisfy the hackathon's "Gemini 3.5 or newer" requirement, and it proved reliable under this project's tool-calling + large structured-output load. `gemini-3.6-flash` is a drop-in upgrade if you want more capability.
 
 ### 3. Run the Studio (One-Click)
 ```bash
@@ -161,7 +161,7 @@ gcloud run deploy promise_ledger --source . --region=us-central1
 echo -n "your_actual_gemini_api_key" | gcloud secrets create gemini-api-key --data-file=-
 gcloud run deploy promise_ledger --source . --region=us-central1 \
     --min-instances=1 --max-instances=1 \
-    --set-env-vars MODEL=gemini-flash-lite-latest \
+    --set-env-vars MODEL=gemini-3.5-flash-lite \
     --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 

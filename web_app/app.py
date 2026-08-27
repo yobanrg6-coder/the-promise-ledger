@@ -145,7 +145,7 @@ async def health_check():
     return {
         "status": "online",
         "service": "The Promise Ledger Studio",
-        "model": os.getenv("MODEL", "gemini-flash-lite-latest"),
+        "model": os.getenv("MODEL", "gemini-3.5-flash-lite"),
         "mcp_server": os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8080/mcp")
     }
 
