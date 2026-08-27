@@ -14,6 +14,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 
 import store
 import predictor
+from trends_service import TrendsCheckUnavailable
 
 
 def test_record_and_fetch_prediction_roundtrip():
@@ -213,6 +214,42 @@ def test_predictor_resolves_incorrect_when_relative_signal_too_weak(monkeypatch)
     result = predictor.resolve_due_predictions(backend=backend)
     assert result["resolved_correct"] == 0
     assert result["resolved_incorrect"] == 1
+
+
+def test_predictor_leaves_prediction_pending_when_relative_signal_check_unavailable(monkeypatch):
+    """
+    A rate-limited or otherwise failed comparative check is a "couldn't
+    check" - same rule as an unreachable target trending feed. It must not
+    be resolved as INCORRECT (that would poison the ledger's accuracy stat on
+    every transient Trends rate-limit during the unattended 6h cycle) - the
+    prediction stays PENDING and gets retried next cycle.
+    """
+    backend = store.InMemoryBackend()
+    store.record_prediction(
+        "Rate Limited Check", "US", "MX", 1, "2000+", 15, "LOW", "ACCELERATING", 0.0, backend=backend
+    )
+
+    monkeypatch.setattr(
+        predictor.GoogleTrendsService, "fetch_daily_trending_topics",
+        staticmethod(lambda geo: [{"topic": "Weakest Real Trend", "search_volume": "500+", "related_news": []}])
+    )
+
+    def raise_unavailable(candidate, anchor, geo):
+        raise TrendsCheckUnavailable("simulated 429 exhausted retries")
+
+    monkeypatch.setattr(
+        predictor.GoogleTrendsService, "fetch_relative_search_ratio",
+        staticmethod(raise_unavailable)
+    )
+    monkeypatch.setattr(predictor.time, "sleep", lambda seconds: None)
+
+    result = predictor.resolve_due_predictions(backend=backend)
+    assert result["resolved_correct"] == 0
+    assert result["resolved_incorrect"] == 0
+    assert result["skipped_fetch_failed"] == 1
+
+    due_again = store.get_due_predictions(backend=backend)
+    assert len(due_again) == 1  # still PENDING, will be retried next cycle
 
 
 def test_predictor_skips_resolution_when_target_fetch_fails(monkeypatch):

@@ -4,6 +4,7 @@ Provides live trending queries, breakout topics, search volume estimates, and vi
 """
 
 import json
+import time
 import urllib.parse
 from typing import Any
 
@@ -13,7 +14,32 @@ from typing import Any
 # untrusted input. Drop-in compatible API.
 import defusedxml.ElementTree as ET
 import httpx
+from pytrends.exceptions import TooManyRequestsError
 from pytrends.request import TrendReq
+
+
+class TrendsCheckUnavailable(Exception):
+    """
+    Raised by fetch_relative_search_ratio when the comparative check could
+    not be completed (rate limit exhausted, network/parsing failure) - this
+    is distinct from a clean `None` return, which means Google answered but
+    had no usable data for one of the two keywords. Callers must not treat
+    this the same as "checked, no real signal": ledger/predictor.py leaves
+    the prediction PENDING for the next cycle instead of resolving it
+    INCORRECT, the same "couldn't check" vs "didn't happen" distinction
+    fetch_daily_trending_topics failures already get.
+    """
+
+
+# Observed live from Cloud Run (26-ago-2026): every one of 35 real
+# fetch_relative_search_ratio calls in one cycle got HTTP 429 - Google Trends'
+# unofficial endpoint appears to rate-limit (or IP-reputation-limit) Cloud
+# Run's egress more aggressively than a residential IP, where the same calls
+# succeeded cleanly. One retry with a real cooldown is cheap insurance against
+# a burst-rate cause; if it's IP-reputation-based instead, this cannot fix it
+# and the caller correctly falls back to leaving the prediction PENDING.
+RATE_LIMIT_RETRY_BACKOFF_SECONDS = 45.0
+MAX_RATE_LIMIT_RETRIES = 1
 
 
 class GoogleTrendsService:
@@ -178,23 +204,38 @@ class GoogleTrendsService:
         "reached real target-market search intensity even without cracking
         the top-10" resolution path.
 
-        Returns candidate_peak / anchor_peak, or None if pytrends returns no
-        usable data for either series (network failure, or too little volume
-        for Google to report at all) - never a fabricated ratio.
+        Returns candidate_peak / anchor_peak, or None if Google answered but
+        had no usable data for either series (too little volume to report at
+        all) - never a fabricated ratio. Raises TrendsCheckUnavailable if the
+        check itself could not be completed (rate limit exhausted after
+        MAX_RATE_LIMIT_RETRIES retries, or any other network/parsing
+        failure) - callers must not treat that the same as a real None.
         """
-        try:
-            pytrends = TrendReq(hl="en", tz=360, timeout=(10, 20))
-            pytrends.build_payload([candidate, anchor], timeframe="now 1-d", geo=geo.upper())
-            df = pytrends.interest_over_time()
-            if df.empty or anchor not in df.columns or candidate not in df.columns:
-                return None
-            anchor_peak = float(df[anchor].max())
-            if anchor_peak == 0:
-                return None
-            return float(df[candidate].max()) / anchor_peak
-        except Exception as e:  # noqa: BLE001 - unofficial pytrends endpoint: network/rate-limit/parsing failures all fold into "no signal available"
-            print(f"[TrendsService] Relative search ratio warning ({candidate!r} vs {anchor!r}, geo={geo}): {e}")
-            return None
+        attempt = 0
+        while True:
+            try:
+                pytrends = TrendReq(hl="en", tz=360, timeout=(10, 20))
+                pytrends.build_payload([candidate, anchor], timeframe="now 1-d", geo=geo.upper())
+                df = pytrends.interest_over_time()
+                if df.empty or anchor not in df.columns or candidate not in df.columns:
+                    return None
+                anchor_peak = float(df[anchor].max())
+                if anchor_peak == 0:
+                    return None
+                return float(df[candidate].max()) / anchor_peak
+            except TooManyRequestsError as e:
+                if attempt >= MAX_RATE_LIMIT_RETRIES:
+                    raise TrendsCheckUnavailable(
+                        f"Rate-limited after {attempt + 1} attempt(s) ({candidate!r} vs {anchor!r}, geo={geo}): {e}"
+                    ) from e
+                attempt += 1
+                print(
+                    f"[TrendsService] 429 on {candidate!r} vs {anchor!r}, geo={geo} - "
+                    f"retrying in {RATE_LIMIT_RETRY_BACKOFF_SECONDS:.0f}s (attempt {attempt}/{MAX_RATE_LIMIT_RETRIES})"
+                )
+                time.sleep(RATE_LIMIT_RETRY_BACKOFF_SECONDS)
+            except Exception as e:  # noqa: BLE001 - any other failure (network, parsing) also means "couldn't check", not "no signal"
+                raise TrendsCheckUnavailable(f"{type(e).__name__} ({candidate!r} vs {anchor!r}, geo={geo}): {e}") from e
 
     @classmethod
     def get_platform_virality_benchmarks(cls, platform: str) -> dict[str, Any]:

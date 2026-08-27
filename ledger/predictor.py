@@ -25,7 +25,7 @@ from scoring import (
     compute_velocity_score,
     find_cross_market_gaps,
 )
-from trends_service import GoogleTrendsService
+from trends_service import GoogleTrendsService, TrendsCheckUnavailable
 
 MAX_NEW_CANDIDATES_PER_MARKET_PAIR = 3
 # Calibrated against real trending-topic velocities observed live (most real
@@ -61,10 +61,12 @@ FORECAST_HORIZONS_HOURS = [1, 4, 12, 24]
 # single-keyword threshold isn't usable at all.
 RELATIVE_SIGNAL_THRESHOLD = 0.25
 # pytrends is an unofficial, rate-limited endpoint - only called for
-# candidates that already missed the free exact top-10 check, but still
-# throttled between calls so an unattended 6h cycle with many due
-# predictions doesn't hammer it.
-RELATIVE_SIGNAL_THROTTLE_SECONDS = 2.0
+# candidates that already missed the free exact top-10 check. Raised from an
+# initial 2.0s to 12.0s after a live Cloud Run run (26-ago-2026) got HTTP 429
+# on all 35 real calls in one cycle at the lower value - still not a
+# guarantee (see TrendsCheckUnavailable's own docstring on the IP-reputation
+# possibility), but cheap to try before concluding it can't be fixed by pacing.
+RELATIVE_SIGNAL_THROTTLE_SECONDS = 12.0
 
 
 def _normalize(topic: str) -> str:
@@ -172,7 +174,15 @@ def resolve_due_predictions(backend: store.PredictionBackend | None = None) -> d
         ratio = None
         anchor_topic = target_trends[-1].get("topic", "") if target_trends else ""
         if anchor_topic and _normalize(anchor_topic) != _normalize(prediction["topic"]):
-            ratio = GoogleTrendsService.fetch_relative_search_ratio(prediction["topic"], anchor_topic, target_geo)
+            try:
+                ratio = GoogleTrendsService.fetch_relative_search_ratio(prediction["topic"], anchor_topic, target_geo)
+            except TrendsCheckUnavailable as e:
+                # Same "couldn't check" vs "didn't happen" rule as the top-10
+                # fetch failure above - leave PENDING, don't poison accuracy.
+                print(f"[Ledger] {e}")
+                skipped_fetch_failed += 1
+                time.sleep(RELATIVE_SIGNAL_THROTTLE_SECONDS)
+                continue
             time.sleep(RELATIVE_SIGNAL_THROTTLE_SECONDS)
 
         if ratio is not None and ratio >= RELATIVE_SIGNAL_THRESHOLD:
