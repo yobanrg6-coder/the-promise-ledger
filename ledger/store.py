@@ -172,6 +172,55 @@ def record_prediction(
     return prediction_id
 
 
+def record_multi_target_prediction(
+    topic: str,
+    baseline_geo: str,
+    target_geos: list[str],
+    baseline_rank: int,
+    baseline_search_volume: str,
+    baseline_velocity_score: int,
+    baseline_saturation_level: str,
+    baseline_lifecycle_stage: str,
+    evaluation_window_hours: float,
+    backend: PredictionBackend | None = None,
+) -> str:
+    """
+    Same falsifiable-prediction shape as record_prediction, but the claim is
+    "will appear in AT LEAST ONE of target_geos" instead of one fixed pair -
+    see agents/scoring.py::find_multi_target_gaps and
+    ledger/predictor.py::make_predictions_for_baseline for why: a single
+    country's own top-10 is too high a bar for most genuine cross-market
+    signal to clear in 1-24h, so this widens the real, falsifiable surface
+    area instead of inventing a softer success criterion.
+    """
+    store = _get_backend(backend)
+    prediction_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc)
+    evaluate_after = created_at.timestamp() + evaluation_window_hours * 3600
+    evaluate_after_iso = datetime.fromtimestamp(evaluate_after, tz=timezone.utc).isoformat(timespec="microseconds")
+
+    store.insert({
+        "id": prediction_id,
+        "created_at": created_at.isoformat(timespec="microseconds"),
+        "topic": topic,
+        "baseline_geo": baseline_geo,
+        "target_geo": None,
+        "target_geos": list(target_geos),
+        "baseline_rank": baseline_rank,
+        "baseline_search_volume": baseline_search_volume,
+        "baseline_velocity_score": baseline_velocity_score,
+        "baseline_saturation_level": baseline_saturation_level,
+        "baseline_lifecycle_stage": baseline_lifecycle_stage,
+        "evaluation_window_hours": evaluation_window_hours,
+        "evaluate_after": evaluate_after_iso,
+        "predicted_outcome": "WILL_APPEAR_IN_AT_LEAST_ONE_TARGET",
+        "status": "PENDING",
+        "resolved_at": None,
+        "actual_outcome": None,
+    })
+    return prediction_id
+
+
 def get_due_predictions(backend: PredictionBackend | None = None, now: str | None = None) -> list[dict[str, Any]]:
     now = now or utcnow_iso()
     store = _get_backend(backend)
@@ -185,6 +234,17 @@ def get_pending_for_pair(baseline_geo: str, target_geo: str, backend: Prediction
     return _get_backend(backend).query_pending_for_pair(baseline_geo, target_geo)
 
 
+def get_pending_for_baseline(baseline_geo: str, backend: PredictionBackend | None = None) -> list[dict[str, Any]]:
+    """
+    Same client-side-filter reasoning as query_pending_for_pair (avoids
+    needing a Firestore composite index for a handful of docs per cycle) -
+    used by make_predictions_for_baseline's per-horizon dedup, where the
+    target isn't a single fixed geo anymore.
+    """
+    pending = _get_backend(backend).query_by_status("PENDING")
+    return [p for p in pending if p.get("baseline_geo") == baseline_geo]
+
+
 def resolve_prediction(prediction_id: str, status: str, actual_outcome: str, backend: PredictionBackend | None = None) -> None:
     if status not in ("CORRECT", "INCORRECT"):
         raise ValueError(f"status must be CORRECT or INCORRECT, got {status!r}")
@@ -195,10 +255,33 @@ def resolve_prediction(prediction_id: str, status: str, actual_outcome: str, bac
     })
 
 
+def mark_needs_graded_check(prediction_id: str, note: str, backend: PredictionBackend | None = None) -> None:
+    """
+    Intermediate, non-final status: the free exact top-10 check missed in
+    every tracked target, but that's a very high bar - see
+    fetch_relative_search_ratio's docstring for why a real graded check needs
+    pytrends, which Google blocks from Cloud Run's egress (verified live,
+    26-ago-2026). This hands the prediction off to a separate local relay
+    (ledger/run_graded_check_relay.py, run from a non-datacenter IP) instead
+    of resolving it INCORRECT from data we know is incomplete. Deliberately
+    does NOT set resolved_at/actual_outcome - it is not evaluated yet, so it
+    must not count toward accuracy_pct until the relay finalizes it.
+    """
+    _get_backend(backend).update(prediction_id, {
+        "status": "NEEDS_GRADED_CHECK",
+        "graded_check_note": note,
+    })
+
+
+def get_needs_graded_check(backend: PredictionBackend | None = None) -> list[dict[str, Any]]:
+    return _get_backend(backend).query_by_status("NEEDS_GRADED_CHECK")
+
+
 def get_accuracy_stats(backend: PredictionBackend | None = None) -> dict[str, Any]:
     store = _get_backend(backend)
     total = store.total_count()
     pending = store.count_by_status("PENDING")
+    needs_graded_check = store.count_by_status("NEEDS_GRADED_CHECK")
     correct = store.count_by_status("CORRECT")
     incorrect = store.count_by_status("INCORRECT")
 
@@ -208,6 +291,7 @@ def get_accuracy_stats(backend: PredictionBackend | None = None) -> dict[str, An
     return {
         "total_predictions": total,
         "pending": pending,
+        "needs_graded_check": needs_graded_check,
         "evaluated": evaluated,
         "correct": correct,
         "incorrect": incorrect,

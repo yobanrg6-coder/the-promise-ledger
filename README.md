@@ -144,7 +144,7 @@ Needs credentials for the Firestore project (or run it from an environment alrea
 pip install -r requirements-dev.txt
 pytest tests/
 ```
-46 tests: deterministic scoring (`test_scoring.py`), the ledger against an in-memory fake backend with no network (`test_ledger.py`), and ADK agent construction (`test_agents_construction.py`).
+61 tests: deterministic scoring (`test_scoring.py`), the ledger against an in-memory fake backend with no network (`test_ledger.py`), the Trends comparative-signal retry logic (`test_trends_service.py`), and ADK agent construction (`test_agents_construction.py`).
 
 ---
 

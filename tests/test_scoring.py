@@ -17,6 +17,7 @@ from agents.scoring import (
     compute_viral_window_hours,
     derive_recommended_action,
     find_cross_market_gaps,
+    find_multi_target_gaps,
     ground_niche_candidates,
     parse_traffic_estimate,
     rank_and_ground_candidates,
@@ -284,4 +285,55 @@ def test_cross_market_gap_deduplicates_repeated_baseline_topic():
     gaps = find_cross_market_gaps("BR", baseline, "US", [])
     topics = [g["topic"] for g in gaps]
     assert topics.count("christopher nolan") + topics.count("Christopher Nolan") == 1
+    assert len(gaps) == 2
+
+
+def test_multi_target_gap_absent_from_all_targets_is_a_gap():
+    baseline = [{"topic": "Autonomous Agent Workflows", "search_volume": "200K+"}]
+    targets = {
+        "MX": [{"topic": "Something Else", "search_volume": "50K+"}],
+        "ES": [{"topic": "Another Thing", "search_volume": "30K+"}],
+        "GB": [{"topic": "Unrelated Topic", "search_volume": "10K+"}],
+    }
+    gaps = find_multi_target_gaps("US", baseline, targets)
+    assert len(gaps) == 1
+    assert gaps[0]["topic"] == "Autonomous Agent Workflows"
+    assert gaps[0]["target_geos"] == ["ES", "GB", "MX"]
+    assert gaps[0]["status"] == "NOT_YET_VISIBLE_ANYWHERE"
+
+
+def test_multi_target_gap_present_in_just_one_target_is_not_a_gap():
+    """
+    The whole point of widening the ledger's claim to "at least one of
+    several targets": a topic only needs to be genuinely absent everywhere to
+    count as a real gap - already showing up in a single tracked market is
+    enough to disqualify it, same as find_cross_market_gaps' single-pair rule.
+    """
+    baseline = [{"topic": "Gemini Agents", "search_volume": "200K+"}]
+    targets = {
+        "MX": [{"topic": "gemini agents", "search_volume": "50K+"}],
+        "ES": [{"topic": "Something Else", "search_volume": "30K+"}],
+    }
+    gaps = find_multi_target_gaps("US", baseline, targets)
+    assert gaps == []
+
+
+def test_multi_target_gap_deduplicates_repeated_baseline_topic():
+    baseline = [
+        {"topic": "christopher nolan", "search_volume": "200+"},
+        {"topic": "neymar", "search_volume": "20000+"},
+        {"topic": "Christopher Nolan", "search_volume": "500+"},
+    ]
+    gaps = find_multi_target_gaps("BR", baseline, {"US": [], "MX": []})
+    topics = [g["topic"] for g in gaps]
+    assert topics.count("christopher nolan") + topics.count("Christopher Nolan") == 1
+    assert len(gaps) == 2
+
+
+def test_multi_target_gap_empty_targets_returns_all_baseline_topics():
+    baseline = [
+        {"topic": "A", "search_volume": "10K+"},
+        {"topic": "B", "search_volume": "20K+"},
+    ]
+    gaps = find_multi_target_gaps("US", baseline, {"MX": [], "ES": [], "GB": []})
     assert len(gaps) == 2

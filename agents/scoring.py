@@ -343,6 +343,51 @@ def ground_niche_candidates(niche_signal: dict[str, Any]) -> list[dict[str, Any]
     return candidates
 
 
+def find_multi_target_gaps(
+    baseline_geo: str,
+    baseline_trends: list[dict[str, Any]],
+    target_trends_by_geo: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """
+    Broader version of find_cross_market_gaps for the Forecast Ledger: real,
+    observed fact about which topics trending in baseline_geo do NOT appear
+    in ANY of several tracked target markets right now - not just one fixed
+    pair. A single country's own 10-slot trending list is too high a bar for
+    most genuine cross-market signal to clear in 1-24h (verified live,
+    26-ago-2026: 2562 one-target predictions, 0.08% real accuracy). Widening
+    the falsifiable claim to "will reach at least one of these markets"
+    keeps the same real, exact, zero-LLM methodology while giving genuine
+    candidates more real chances to land - see
+    ledger/predictor.py::make_predictions_for_baseline.
+    """
+    def normalize(topic: str) -> str:
+        return topic.strip().lower()
+
+    all_target_topics = {
+        normalize(t.get("topic", ""))
+        for trends in target_trends_by_geo.values()
+        for t in trends
+    }
+
+    gaps = []
+    seen_baseline_topics = set()
+    for idx, item in enumerate(baseline_trends):
+        topic = item.get("topic", "")
+        normalized = normalize(topic)
+        if normalized in all_target_topics or normalized in seen_baseline_topics:
+            continue
+        seen_baseline_topics.add(normalized)
+        gaps.append({
+            "topic": topic,
+            "baseline_geo": baseline_geo,
+            "baseline_rank": idx + 1,
+            "baseline_search_volume": item.get("search_volume", ""),
+            "target_geos": sorted(target_trends_by_geo.keys()),
+            "status": "NOT_YET_VISIBLE_ANYWHERE",
+        })
+    return gaps
+
+
 def find_cross_market_gaps(
     baseline_geo: str,
     baseline_trends: list[dict[str, Any]],

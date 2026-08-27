@@ -24,10 +24,12 @@ from scoring import (
     compute_saturation,
     compute_velocity_score,
     find_cross_market_gaps,
+    find_multi_target_gaps,
 )
 from trends_service import GoogleTrendsService, TrendsCheckUnavailable
 
 MAX_NEW_CANDIDATES_PER_MARKET_PAIR = 3
+MAX_NEW_CANDIDATES_PER_BASELINE = 3
 # Calibrated against real trending-topic velocities observed live (most real
 # items score 2-12 on a normal day; 20+ only shows up on major spikes). A
 # fixed threshold near the top of that normal range still filters the weakest
@@ -123,41 +125,128 @@ def make_predictions_for_market_pair(baseline_geo: str, target_geo: str, backend
     return new_ids
 
 
-def resolve_due_predictions(backend: store.PredictionBackend | None = None) -> dict[str, int]:
-    due = store.get_due_predictions(backend=backend)
-    resolved_correct = 0
-    resolved_incorrect = 0
-    skipped_fetch_failed = 0
+def make_predictions_for_baseline(
+    baseline_geo: str, target_geos: list[str], backend: store.PredictionBackend | None = None
+) -> list[str]:
+    """
+    Widened version of make_predictions_for_market_pair: the falsifiable
+    claim becomes "will appear in at least one of target_geos" instead of one
+    fixed pair - see find_multi_target_gaps and
+    ledger/store.py::record_multi_target_prediction for why. Same candidate
+    filters (velocity, real-news backing) and horizon fan-out as the pair
+    version, just fed by a broader gap search.
+    """
+    baseline_trends = GoogleTrendsService.fetch_daily_trending_topics(geo=baseline_geo)
+    target_trends_by_geo = {geo: GoogleTrendsService.fetch_daily_trending_topics(geo=geo) for geo in target_geos}
+    gaps = find_multi_target_gaps(baseline_geo, baseline_trends, target_trends_by_geo)
+    gap_topics = {_normalize(g["topic"]) for g in gaps}
+
+    with_scores = []
+    total = len(baseline_trends)
+    for idx, item in enumerate(baseline_trends):
+        if _normalize(item.get("topic", "")) not in gap_topics:
+            continue
+        velocity = compute_velocity_score(item.get("search_volume", ""), idx, total)
+        if velocity < MIN_VELOCITY_TO_PREDICT:
+            continue
+        related_news_count = len(item.get("related_news", []))
+        if related_news_count < MIN_RELATED_NEWS_TO_PREDICT:
+            continue
+        _, saturation_level = compute_saturation(related_news_count, 0)
+        lifecycle = classify_lifecycle_stage(item.get("search_volume", ""), idx, total, related_news_count, 0)
+        with_scores.append((idx, item, velocity, saturation_level, lifecycle))
+
+    with_scores.sort(key=lambda t: t[2], reverse=True)  # highest velocity first
+    with_scores = with_scores[:MAX_NEW_CANDIDATES_PER_BASELINE]
+
+    existing_pending = {
+        (_normalize(row["topic"]), row["evaluation_window_hours"])
+        for row in store.get_pending_for_baseline(baseline_geo, backend=backend)
+    }
+
+    new_ids = []
+    for idx, item, velocity, saturation_level, lifecycle in with_scores:
+        topic = item.get("topic", "")
+        for horizon_hours in FORECAST_HORIZONS_HOURS:
+            if (_normalize(topic), float(horizon_hours)) in existing_pending:
+                continue
+            prediction_id = store.record_multi_target_prediction(
+                backend=backend,
+                topic=topic,
+                baseline_geo=baseline_geo,
+                target_geos=target_geos,
+                baseline_rank=idx + 1,
+                baseline_search_volume=item.get("search_volume", ""),
+                baseline_velocity_score=velocity,
+                baseline_saturation_level=saturation_level,
+                baseline_lifecycle_stage=lifecycle,
+                evaluation_window_hours=float(horizon_hours),
+            )
+            new_ids.append(prediction_id)
+    return new_ids
+
+
+def _cached_trends_fetcher(target_cache: dict[str, list[dict[str, Any]] | None]):
     # None = not attempted yet this run, [] would be indistinguishable from a
     # real (extremely unlikely) empty trending list, so cache the raw result
     # object (list or None-on-failure) rather than always a list.
-    target_cache: dict[str, list[dict[str, Any]] | None] = {}
+    def get_trends(geo: str) -> list[dict[str, Any]] | None:
+        if geo not in target_cache:
+            fetched = GoogleTrendsService.fetch_daily_trending_topics(geo=geo)
+            target_cache[geo] = fetched if fetched else None
+        return target_cache[geo]
+
+    return get_trends
+
+
+def resolve_due_predictions(backend: store.PredictionBackend | None = None) -> dict[str, int]:
+    """
+    Cloud Run's half of resolution: the free, reliable exact-match check
+    only - no pytrends call, ever (Google blocks it from Cloud Run's egress,
+    verified live 26-ago-2026 with a real cooldown retry still failing - see
+    TrendsCheckUnavailable). Handles both the current multi-target
+    predictions (`target_geos`, a list - see make_predictions_for_baseline)
+    and older single-target ones (`target_geo`) recorded before that change,
+    uniformly.
+
+    A miss across every tracked target is a real, high bar, but not proof of
+    "wrong" - it's hand off to NEEDS_GRADED_CHECK for
+    ledger/run_graded_check_relay.py (a non-Cloud-Run, non-datacenter IP) to
+    finish, rather than resolved INCORRECT from data we know is incomplete.
+    """
+    due = store.get_due_predictions(backend=backend)
+    resolved_correct = 0
+    resolved_incorrect = 0  # kept for stable return shape - Cloud Run never sets this itself anymore
+    sent_to_graded_check = 0
+    skipped_fetch_failed = 0
+    get_trends = _cached_trends_fetcher({})
 
     for prediction in due:
-        target_geo = prediction["target_geo"]
-        if target_geo not in target_cache:
-            fetched = GoogleTrendsService.fetch_daily_trending_topics(geo=target_geo)
-            # An empty result means either the RSS feed was unreachable or
-            # returned nothing parsable - see trends_service.py's own "no
-            # silent fabrication" fix. Either way we cannot tell "the topic
-            # genuinely never showed up" from "we failed to check", and
-            # resolving as INCORRECT in that case would silently poison the
-            # Forecast Ledger's accuracy stat on every transient network
-            # hiccup during the unattended 6h cycle. Leave PENDING instead -
-            # it gets re-checked on the next cycle.
-            target_cache[target_geo] = fetched if fetched else None
-        target_trends = target_cache[target_geo]
+        target_geos = prediction.get("target_geos") or [prediction["target_geo"]]
+        topic = prediction["topic"]
 
-        if target_trends is None:
-            skipped_fetch_failed += 1
-            continue
+        match_found = None
+        any_fetch_failed = False
+        for target_geo in target_geos:
+            target_trends = get_trends(target_geo)
+            if target_trends is None:
+                # An empty result means the RSS feed was unreachable or
+                # returned nothing parsable - see trends_service.py's own "no
+                # silent fabrication" fix. Can't tell "genuinely absent" from
+                # "failed to check" for this target, so don't conclude
+                # anything from it - but other targets may still resolve it.
+                any_fetch_failed = True
+                continue
+            match = next(
+                (t for t in target_trends if _normalize(t.get("topic", "")) == _normalize(topic)),
+                None,
+            )
+            if match:
+                match_found = (target_geo, target_trends.index(match) + 1, match)
+                break
 
-        match = next(
-            (t for t in target_trends if _normalize(t.get("topic", "")) == _normalize(prediction["topic"])),
-            None,
-        )
-        if match:
-            rank = target_trends.index(match) + 1
+        if match_found:
+            target_geo, rank, match = match_found
             store.resolve_prediction(
                 prediction["id"], "CORRECT",
                 f"Appeared in {target_geo} trending list at rank {rank} ({match.get('search_volume', '?')}).",
@@ -166,39 +255,127 @@ def resolve_due_predictions(backend: store.PredictionBackend | None = None) -> d
             resolved_correct += 1
             continue
 
-        # Didn't crack the target's own top-10, but that's a very high bar -
-        # fall back to a real, comparative search-interest check against the
-        # target's own weakest currently-trending topic (see
-        # fetch_relative_search_ratio's docstring for why this has to be a
-        # comparison, never a single-keyword threshold).
-        ratio = None
-        anchor_topic = target_trends[-1].get("topic", "") if target_trends else ""
-        if anchor_topic and _normalize(anchor_topic) != _normalize(prediction["topic"]):
+        if any_fetch_failed:
+            # Couldn't confirm absence everywhere this cycle - retry next time.
+            skipped_fetch_failed += 1
+            continue
+
+        store.mark_needs_graded_check(
+            prediction["id"],
+            f"Not in the top-10 of any of {target_geos} as of {store.utcnow_iso()}.",
+            backend=backend,
+        )
+        sent_to_graded_check += 1
+
+    return {
+        "resolved_correct": resolved_correct,
+        "resolved_incorrect": resolved_incorrect,
+        "sent_to_graded_check": sent_to_graded_check,
+        "skipped_fetch_failed": skipped_fetch_failed,
+        "checked": len(due),
+    }
+
+
+def resolve_needs_graded_check(backend: store.PredictionBackend | None = None) -> dict[str, int]:
+    """
+    Second-pass, final resolution for predictions Cloud Run could only
+    confirm were absent from every tracked target's own top-10 (see
+    resolve_due_predictions -> store.mark_needs_graded_check). Must be run
+    from a non-datacenter IP - see ledger/run_graded_check_relay.py and
+    fetch_relative_search_ratio's docstring for why Cloud Run's own egress
+    cannot do this reliably.
+
+    Two checks, in order: (1) a fresh, still-free exact top-10 re-check
+    (time has passed since Cloud Run's miss, so a late real arrival is
+    possible), then (2) the comparative pytrends signal against each
+    target's own weakest currently-trending topic, keeping the best result
+    across all tracked targets.
+    """
+    due = store.get_needs_graded_check(backend=backend)
+    resolved_correct = 0
+    resolved_incorrect = 0
+    still_unavailable = 0
+    get_trends = _cached_trends_fetcher({})
+
+    for prediction in due:
+        target_geos = prediction.get("target_geos") or [prediction["target_geo"]]
+        topic = prediction["topic"]
+
+        match_found = None
+        any_fetch_ok = False
+        for target_geo in target_geos:
+            target_trends = get_trends(target_geo)
+            if target_trends is None:
+                continue
+            any_fetch_ok = True
+            match = next(
+                (t for t in target_trends if _normalize(t.get("topic", "")) == _normalize(topic)),
+                None,
+            )
+            if match:
+                match_found = (target_geo, target_trends.index(match) + 1, match)
+                break
+
+        if match_found:
+            target_geo, rank, match = match_found
+            store.resolve_prediction(
+                prediction["id"], "CORRECT",
+                f"Appeared in {target_geo} trending list at rank {rank} ({match.get('search_volume', '?')}) "
+                "on a later re-check.",
+                backend=backend,
+            )
+            resolved_correct += 1
+            continue
+
+        if not any_fetch_ok:
+            still_unavailable += 1
+            continue
+
+        best_ratio = None
+        best_anchor = None
+        best_geo = None
+        any_check_succeeded = False
+        for target_geo in target_geos:
+            target_trends = get_trends(target_geo)
+            if not target_trends:
+                continue
+            anchor_topic = target_trends[-1].get("topic", "")
+            if not anchor_topic or _normalize(anchor_topic) == _normalize(topic):
+                continue
             try:
-                ratio = GoogleTrendsService.fetch_relative_search_ratio(prediction["topic"], anchor_topic, target_geo)
+                ratio = GoogleTrendsService.fetch_relative_search_ratio(topic, anchor_topic, target_geo)
+                any_check_succeeded = True
             except TrendsCheckUnavailable as e:
-                # Same "couldn't check" vs "didn't happen" rule as the top-10
-                # fetch failure above - leave PENDING, don't poison accuracy.
                 print(f"[Ledger] {e}")
-                skipped_fetch_failed += 1
                 time.sleep(RELATIVE_SIGNAL_THROTTLE_SECONDS)
                 continue
             time.sleep(RELATIVE_SIGNAL_THROTTLE_SECONDS)
+            if ratio is not None and (best_ratio is None or ratio > best_ratio):
+                best_ratio, best_anchor, best_geo = ratio, anchor_topic, target_geo
 
-        if ratio is not None and ratio >= RELATIVE_SIGNAL_THRESHOLD:
+        if not any_check_succeeded:
+            # pytrends itself unreachable this run - try again next relay run
+            # rather than concluding INCORRECT from an incomplete check.
+            still_unavailable += 1
+            continue
+
+        if best_ratio is not None and best_ratio >= RELATIVE_SIGNAL_THRESHOLD:
             store.resolve_prediction(
                 prediction["id"], "CORRECT",
-                f"Not in {target_geo}'s own top-10, but reached {ratio:.0%} of the real search "
-                f"interest of {anchor_topic!r} ({target_geo}'s own weakest currently-trending topic) "
-                "during the window.",
+                f"Not in any tracked target's own top-10, but reached {best_ratio:.0%} of the real "
+                f"search interest of {best_anchor!r} ({best_geo}'s own weakest currently-trending topic).",
                 backend=backend,
             )
             resolved_correct += 1
         else:
-            detail = f" (reached {ratio:.0%} of {anchor_topic!r}, below the {RELATIVE_SIGNAL_THRESHOLD:.0%} bar)" if ratio is not None else ""
+            detail = (
+                f" (best reached {best_ratio:.0%} of {best_anchor!r} in {best_geo}, "
+                f"below the {RELATIVE_SIGNAL_THRESHOLD:.0%} bar)"
+            ) if best_ratio is not None else ""
             store.resolve_prediction(
                 prediction["id"], "INCORRECT",
-                f"Still not visible in {target_geo}'s trending list as of resolution time{detail}.",
+                f"Still not visible in any of {target_geos}'s trending lists, and no comparable "
+                f"real search interest found{detail}.",
                 backend=backend,
             )
             resolved_incorrect += 1
@@ -206,6 +383,6 @@ def resolve_due_predictions(backend: store.PredictionBackend | None = None) -> d
     return {
         "resolved_correct": resolved_correct,
         "resolved_incorrect": resolved_incorrect,
-        "skipped_fetch_failed": skipped_fetch_failed,
+        "still_unavailable": still_unavailable,
         "checked": len(due),
     }
