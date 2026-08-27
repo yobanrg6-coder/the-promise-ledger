@@ -120,7 +120,14 @@ def _get_backend(backend: PredictionBackend | None) -> PredictionBackend:
         return backend
     global _default_backend
     if _default_backend is None:
-        _default_backend = FirestoreBackend()
+        # Explicit project, not ambient gcloud config: this ledger only ever
+        # belongs to one project, but a developer machine running this
+        # locally (see run_graded_check_relay.py) may have a different
+        # project active for other work - relying on ambient config caused a
+        # real PERMISSION_DENIED against the wrong project (26-ago-2026).
+        # Cloud Run's own metadata-server project matches anyway, so this is
+        # a no-op there.
+        _default_backend = FirestoreBackend(project="topicahead-hackathon")
     return _default_backend
 
 
