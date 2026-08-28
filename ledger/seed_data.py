@@ -1,0 +1,147 @@
+"""
+Curated seed promises for The Promise Ledger demo.
+
+Each entry is a REAL, public, dated product commitment by an AI company, typed
+in by hand from the linked source. The `claimed_*` notes record what a human
+believes the outcome was - they are NOT trusted by the system. When the seed
+runs, the zero-LLM verifier fetches `evidence_url` live and decides the status
+itself; if a note turns out wrong, the ledger will say so.
+
+Fields map 1:1 onto agents.promise_schemas.PromiseExtraction (+ evidence_url).
+Keep this list conservative and auditable - it is the spine of the demo, and
+the whole product's point is that nothing here is fabricated.
+"""
+
+from __future__ import annotations
+
+SEED_PROMISES: list[dict] = [
+    {
+        "company": "Meta",
+        "announced_date": "2024-02-01",
+        "source_url": "https://about.fb.com/news/2024/02/",
+        "source_quote": (
+            "We're also working on Llama 3 ... we expect to start releasing our next "
+            "generation of models over the coming months."
+        ),
+        "promise_text": "Meta will begin releasing Llama 3 models within a few months of Feb 2024.",
+        "observable_outcome": "Llama 3 model weights are published on Meta's AI site and Hugging Face.",
+        "check_keywords": ["Meta Llama 3", "Llama 3", "8B", "70B"],
+        "deadline_raw": "over the coming months",
+        "deadline_date_iso": "2024-06-30",
+        "evidence_url": "https://ai.meta.com/blog/meta-llama-3/",
+        "claimed_outcome": "FULFILLED - Llama 3 (8B, 70B) released 2024-04-18.",
+    },
+    {
+        "company": "Meta",
+        "announced_date": "2024-04-18",
+        "source_url": "https://ai.meta.com/blog/meta-llama-3/",
+        "source_quote": (
+            "Our largest models are over 400B parameters and ... still training. "
+            "Over the coming months, we'll release multiple models with new capabilities."
+        ),
+        "promise_text": "Meta will release its 400B+ parameter Llama 3 model in the months after Apr 2024.",
+        "observable_outcome": "A Llama 3.1 405B model is published by Meta with weights available.",
+        "check_keywords": ["Llama 3.1", "405B", "Meta Llama 3.1"],
+        "deadline_raw": "over the coming months",
+        "deadline_date_iso": "2024-09-30",
+        "evidence_url": "https://ai.meta.com/blog/meta-llama-3-1/",
+        "claimed_outcome": "FULFILLED - Llama 3.1 405B released 2024-07-23.",
+    },
+    {
+        "company": "xAI",
+        "announced_date": "2024-03-11",
+        "source_url": "https://x.com/elonmusk/status/1767108624038449405",
+        "source_quote": "This week, @xAI will open source Grok.",
+        "promise_text": "xAI will open-source its Grok model in the week of Mar 11, 2024.",
+        "observable_outcome": "Grok-1 model weights are published under an open licence in a public repo.",
+        "check_keywords": ["Grok-1", "open-weights", "314B", "Apache 2.0"],
+        "deadline_raw": "this week",
+        "deadline_date_iso": "2024-03-18",
+        "evidence_url": "https://github.com/xai-org/grok-1",
+        "claimed_outcome": "FULFILLED - Grok-1 open weights released 2024-03-17.",
+    },
+    {
+        "company": "Anthropic",
+        "announced_date": "2024-10-22",
+        "source_url": "https://www.anthropic.com/news/3-5-models-and-computer-use",
+        "source_quote": "The new Claude 3.5 Haiku will be released later this month.",
+        "promise_text": "Anthropic will release Claude 3.5 Haiku before the end of October 2024.",
+        "observable_outcome": "Claude 3.5 Haiku is documented as a released model with a ship date.",
+        "check_keywords": ["Claude 3.5 Haiku", "Haiku"],
+        "deadline_raw": "later this month",
+        "deadline_date_iso": "2024-10-31",
+        # Anthropic's own API changelog is a rolling window and the Nov-2024
+        # entry has since scrolled off it; Wikipedia's model page is stable
+        # and dated.
+        "evidence_url": "https://en.wikipedia.org/wiki/Claude_(language_model)",
+        "claimed_outcome": "FULFILLED_LATE - Claude 3.5 Haiku shipped 2024-11-04, a few days past 'this month'.",
+    },
+    {
+        "company": "Apple",
+        "announced_date": "2024-06-10",
+        "source_url": "https://www.apple.com/newsroom/2024/06/introducing-apple-intelligence-for-iphone-ipad-and-mac/",
+        "source_quote": (
+            "Apple Intelligence features will be available in beta starting this fall as part of "
+            "iOS 18, iPadOS 18, and macOS Sequoia in U.S. English."
+        ),
+        "promise_text": "Apple will ship Apple Intelligence in beta in fall 2024 on iOS 18 / iPadOS 18 / macOS Sequoia.",
+        "observable_outcome": "Apple's newsroom announces Apple Intelligence shipping in iOS 18.1 / iPadOS 18.1.",
+        "check_keywords": ["Apple Intelligence", "iOS 18.1", "iPadOS 18.1"],
+        "deadline_raw": "this fall",
+        "deadline_date_iso": "2024-11-30",
+        "evidence_url": "https://www.apple.com/newsroom/2024/10/apple-intelligence-is-available-today-on-iphone-ipad-and-mac/",
+        "claimed_outcome": "FULFILLED - first Apple Intelligence features shipped in iOS 18.1 on 2024-10-28.",
+    },
+    {
+        "company": "Apple",
+        "announced_date": "2024-06-10",
+        "source_url": "https://www.apple.com/newsroom/2024/06/introducing-apple-intelligence-for-iphone-ipad-and-mac/",
+        "source_quote": (
+            "With onscreen awareness, Siri will be able to understand and take action with users' "
+            "content in more apps over time ... delivering personal context."
+        ),
+        "promise_text": "Apple will ship a more personalized Siri with onscreen awareness and in-app actions within about a year.",
+        "observable_outcome": "Apple's Siri page describes shipped onscreen awareness and personal-context in-app actions.",
+        "check_keywords": ["Siri onscreen awareness", "Siri personal context"],
+        "deadline_raw": "over the course of the next year",
+        "deadline_date_iso": "2025-06-10",
+        "evidence_url": "https://www.apple.com/apple-intelligence/",
+        "claimed_outcome": (
+            "DELAYED/ABANDONED - Apple publicly pushed the personalized Siri out in 2025 and it "
+            "was still not shipped as of late 2025. By this ledger's fixed rule (no delivery "
+            "evidence 180+ days past the deadline) it reads as ABANDONED. Confirm current state."
+        ),
+    },
+    {
+        "company": "Stability AI",
+        "announced_date": "2024-04-17",
+        "source_url": "https://stability.ai/news/stable-diffusion-3-api",
+        "source_quote": (
+            "We ... will make the weights available for self-hosting with a Stability AI Membership "
+            "in the near future."
+        ),
+        "promise_text": "Stability AI will release downloadable Stable Diffusion 3 weights within weeks of Apr 2024.",
+        "observable_outcome": "Stable Diffusion 3 Medium open weights are published for download.",
+        "check_keywords": ["Stable Diffusion 3 Medium", "weights", "Community License"],
+        "deadline_raw": "in the near future",
+        "deadline_date_iso": "2024-05-31",
+        "evidence_url": "https://stability.ai/news/stable-diffusion-3-medium",
+        "claimed_outcome": (
+            "FULFILLED_LATE - SD3 Medium weights released 2024-06-12; the news page carries no "
+            "prose date, so the verifier can only confirm FULFILLED, not that it was late."
+        ),
+    },
+    {
+        "company": "OpenAI",
+        "announced_date": "2024-05-13",
+        "source_url": "https://openai.com/index/hello-gpt-4o/",
+        "source_quote": "We plan to launch support for a new ChatGPT desktop app for Windows later this year.",
+        "promise_text": "OpenAI will release a ChatGPT desktop app for Windows before the end of 2024.",
+        "observable_outcome": "OpenAI's download page offers an installable ChatGPT app for Windows.",
+        "check_keywords": ["ChatGPT", "Windows", "download"],
+        "deadline_raw": "later this year",
+        "deadline_date_iso": "2024-12-31",
+        "evidence_url": "https://openai.com/chatgpt/download/",
+        "claimed_outcome": "FULFILLED - Windows desktop app released in Oct 2024 (the page carries no ship date).",
+    },
+]

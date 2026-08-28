@@ -1,58 +1,62 @@
 """
-One full ledger cycle: resolve any predictions whose window has elapsed, then
-record fresh predictions for a fixed rotation of market pairs. Meant to be
-invoked periodically by a scheduled task (see ledger/README.md) - no API key
-required, no Gemini calls, safe to run unattended for days.
+One verification cycle for The Promise Ledger.
+
+For every admitted promise whose deadline has passed and that is not yet in a
+final state, re-fetch its evidence page and re-decide its status with the
+zero-LLM verifier (ledger/verifier.py). No API key, no Gemini call - safe to
+run unattended on a schedule.
 
 Usage: python -m ledger.run_cycle
 """
 
+from __future__ import annotations
+
+import datetime as dt
 import logging
 import os
 import sys
-from datetime import datetime, timezone
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-import predictor
-import store
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+from agents.promise_schemas import LedgerPromise
+from ledger import promises as ledger
+from ledger.verifier import verify_promise
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("promise_ledger.ledger")
+logger = logging.getLogger("promise_ledger.cycle")
 
-# Every tracked market predicts crossing into ALL the others at once (see
-# agents/scoring.py::find_multi_target_gaps) instead of a fixed list of
-# asymmetric pairs - simpler, and a real prediction now has 3 chances to land
-# instead of 1. Replaces the old 6-pair MARKET_PAIRS list (26-ago-2026).
-GEOS = ["US", "MX", "ES", "GB"]
 
-def main():
-    logger.info("Ledger cycle starting at %s", datetime.now(timezone.utc).isoformat())
+def run_cycle(check_date: dt.date | None = None, backend=None) -> dict:
+    """Verify every due promise once. Returns a small summary dict."""
+    today = check_date or dt.datetime.now(dt.timezone.utc).date()
+    due = ledger.due_for_check(check_date=today, backend=backend)
+    logger.info("Verification cycle starting %s - %d promise(s) due", today.isoformat(), len(due))
 
-    resolution = predictor.resolve_due_predictions()
-    logger.info(
-        "Resolved %d due predictions (%d correct, %d sent to graded check, %d skipped - fetch failed)",
-        resolution["checked"], resolution["resolved_correct"], resolution["sent_to_graded_check"],
-        resolution["skipped_fetch_failed"],
-    )
-
-    total_new = 0
-    for baseline_geo in GEOS:
-        target_geos = [g for g in GEOS if g != baseline_geo]
+    changed: list[dict] = []
+    errors = 0
+    for row in due:
         try:
-            new_ids = predictor.make_predictions_for_baseline(baseline_geo, target_geos)
-            logger.info("Recorded %d new predictions for %s -> %s", len(new_ids), baseline_geo, target_geos)
-            total_new += len(new_ids)
+            before = row.get("status")
+            result = verify_promise(LedgerPromise(**row), check_date=today)
+            ledger.apply_verification(row["id"], result, backend=backend)
+            if result.status.value != before:
+                changed.append({"id": row["id"], "company": row.get("company"),
+                                "from": before, "to": result.status.value})
+                logger.info("  %s (%s): %s -> %s  [%s]", row["id"][:8], row.get("company"),
+                            before, result.status.value, result.reason)
         except Exception:
-            logger.exception("Failed to record predictions for baseline %s", baseline_geo)
+            errors += 1
+            logger.exception("  verification failed for %s", row.get("id"))
 
-    stats = store.get_accuracy_stats()
+    card = ledger.get_scorecard(backend=backend)
+    ov = card["overall"]
     logger.info(
-        "Cycle complete. New predictions: %d. Ledger totals: %d evaluated, %s%% accuracy, %d pending.",
-        total_new, stats["evaluated"],
-        stats["accuracy_pct"] if stats["accuracy_pct"] is not None else "n/a",
-        stats["pending"],
+        "Cycle complete. checked=%d changed=%d errors=%d | ledger: %d total, %d resolved, on-time rate %s",
+        len(due), len(changed), errors, ov["total"], ov["resolved"],
+        f'{ov["on_time_rate_pct"]}%' if ov["on_time_rate_pct"] is not None else "n/a",
     )
+    return {"checked": len(due), "changed": changed, "errors": errors, "scorecard": card}
 
 
 if __name__ == "__main__":
-    main()
+    run_cycle()

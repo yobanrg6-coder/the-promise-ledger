@@ -1,176 +1,166 @@
-# 🛸 The Promise Ledger: Autonomous Attention-Timing Intelligence
+# The Promise Ledger
 
 [![Google ADK](https://img.shields.io/badge/Framework-Google%20ADK-4285F4?logo=google&logoColor=white)](https://github.com/google/adk)
 [![Model](https://img.shields.io/badge/LLM-Gemini%203.5%20%2B%20Gemma-34A853?logo=google-gemini&logoColor=white)](https://aistudio.google.com/)
-[![MCP](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-blueviolet)](https://modelcontextprotocol.io/)
+[![MCP](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol-blueviolet)](https://modelcontextprotocol.io/)
 [![Cloud](https://img.shields.io/badge/Deployment-Google%20Cloud%20Run-FBBC05?logo=google-cloud&logoColor=white)](https://cloud.google.com/run)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> Built for the official **Google Cloud "All Things Agentic" Hackathon** ($180,000 USD Prize Pool) under **The Taskmaster** category.
+> Built for the **Google Cloud "All Things Agentic" Hackathon**, category **The Taskmaster**.
+
+**A machine-verifiable record of public product promises.** Companies announce
+dated commitments constantly ("open weights by end of year", "GA next quarter",
+"available later this month"). Nobody keeps an honest, checkable score of which
+ones actually shipped, on time. The Promise Ledger does, and — its whole point —
+**no LLM decides an outcome**. A promise's status is set by deterministic code
+that fetches the official page and checks it.
 
 ---
 
-## 🌟 Overview & Problem Statement
+## What it does
 
-Trend tools that just say "this is trending right now, here's a caption" are a solved, crowded market — YoTrends, vidIQ, and Virlo already do niche+region trend detection as mature paid products. The real unsolved problem is **timing and accountability**:
+1. **Extract** a falsifiable promise from an announcement — an agent (Gemini)
+   proposes a structured promise: verbatim source quote, normalized deadline,
+   an observable outcome, and machine-checkable keywords.
+2. **Audit** it adversarially on a second model family (Gemma) — an independent
+   read on "is this actually checkable?". Rejections trigger up to two
+   re-extractions.
+3. **Gate** it with pure Python — a real deadline, not absurd, ≥2 distinct
+   specific keywords, a substantive outcome. The gate admits, not the model.
+4. **Verify** it at the deadline with **zero LLM** — fetch the evidence page,
+   match keywords as whole tokens, read a ship date if one is on the page, and
+   apply a fixed decision table.
+5. **Score** it — a per-company and overall scorecard: kept on time / late /
+   delayed / abandoned / unverifiable, and an on-time rate that is a count, not
+   a claim.
 
-1. **No one tells you *when to act*, only *what's hot*.** Detecting a spike is not the same as knowing whether it's worth acting on before it's saturated.
-2. **No one verifies their own calls.** Every trend tool markets confidence; none of them publish a falsifiable record of whether their calls were actually right.
-3. **Cross-market timing is invisible.** A topic trending in one market today is often not yet visible in another — a real, observable window that generic trend feeds don't surface.
+### The seven statuses
 
-**The Promise Ledger** is an **Attention Intelligence Layer**: it scores a topic's lifecycle phase and cross-market visibility gap from real signals, renders a deterministic **ACT_NOW / MONITOR / IGNORE** verdict, and — its core differentiator — logs every prediction it makes to a **Forecast Ledger** that resolves itself against real data later, so its accuracy is a checkable number, not a marketing claim. Content generation (script, critic audit, visual direction) is a secondary **Execution Layer** that only runs when the verdict is `ACT_NOW`.
+`PENDING` · `FULFILLED` · `FULFILLED_LATE` · `PARTIALLY_FULFILLED` · `DELAYED` ·
+`ABANDONED` · `UNVERIFIABLE`
+
+The decision table lives in `ledger/README.md` and `ledger/verifier.py`. It is
+deliberately fixed and public, so "delayed vs abandoned" is never a judgement
+call made after the fact.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-```mermaid
-flowchart TD
-    User["👤 User"] --> WebUI["🖥️ Interactive Studio (FastAPI + JS)"]
-    WebUI --> Orchestrator["🧠 PromiseLedgerOrchestrator (Google ADK Root)"]
+```
+announcement text ──▶ PromiseExtractorAgent  (Gemini, ADK, structured output)   [1]
+                        │
+                        ▼
+                     PromiseAuditorAgent     (Gemma, ADK, adversarial)          [2]
+                        │  reject ─▶ re-extract (max 2)
+                        ▼
+                     falsifiability gate      (pure Python, no LLM)             [3]
+                        │
+                        ▼
+                     admit_promise ──▶ ledger  (JSON file / Firestore)          [4]
 
-    subgraph MCPLayer ["🔌 FastMCP Server"]
-        TrendsTool["📈 get_daily_trends(geo)"]
-        IntentTool["🔍 get_rising_search_intent(keyword)"]
-        RadarTool["🎯 get_grounded_opportunity_candidates(geo, keyword)"]
-        NicheTool["🐾 get_niche_trend_signals(keyword, geo)"]
-        GapsTool["🌍 get_cross_market_gaps(baseline_geo, target_geo)"]
-        LedgerTool["🔮 get_forecast_accuracy()"]
-        BenchmarkTool["📊 get_virality_benchmarks(platform)"]
-    end
-
-    subgraph AttentionLayer ["🎯 Attention Intelligence Layer (deterministic, real signals only)"]
-        Orchestrator --> Agent1["1. 📈 TrendScoutAgent (MCP-grounded)"]
-        Agent1 --> Scoring["agents/scoring.py: velocity, saturation,\nlifecycle stage, ACT_NOW/MONITOR/IGNORE"]
-    end
-
-    subgraph Ledger ["🔮 Forecast Ledger (no LLM — pure deterministic + HTTP)"]
-        Predictor["ledger/predictor.py: emits & resolves\nfalsifiable predictions at 1h/4h/12h/24h"]
-        Store["ledger/store.py: Firestore (Cloud Run's per-instance\nfilesystem is ephemeral, so a local DB file would be wiped)"]
-        Cycle["ledger/run_cycle.py: scheduled every 6h"]
-    end
-
-    subgraph ExecutionLayer ["🤖 Execution Layer (only runs if verdict == ACT_NOW)"]
-        Agent2["2. 🎬 ScriptHookAgent (0-3s Hooks)"]
-        Agent2 -->|"Draft Script"| Agent3["3. 🛡️ ViralityAuditorAgent (Critic, Gemini)"]
-        Agent2 -->|"asyncio.gather - run in parallel"| Agent3b["3b. 🔁 GemmaAuditorAgent\nsame instruction/schema, different model: Gemma"]
-        Agent3 --> Reconcile["agents/scoring.py::reconcile_virality_audit\nconservative min() + union of reasons"]
-        Agent3b --> Reconcile
-        Reconcile -->|"Score < 80: Rejected + Revision"| Agent2
-        Reconcile -->|"Score ≥ 80: Approved"| Agent4["4. 🎨 VisualCreativeAgent (Prompts & Hashtags)"]
-    end
-
-    Scoring -->|"ACT_NOW"| Agent2
-    Scoring -->|"MONITOR / IGNORE"| Stop["⏸️ decision_stop: verdict IS the output"]
-    Agent4 --> Orchestrator
-    Predictor <--> Store
-    Cycle --> Predictor
-    Orchestrator --> Output["📦 Structured Pydantic Payload"]
-    Output --> WebUI
+ledger  ◀──▶  FastMCP server        get_scorecard · list_promises · get_promise ·
+                                    admit_promise · run_verification_cycle
+   │
+   ▼
+run_cycle  (scheduled, zero LLM)   re-fetch every due promise's evidence page,
+                                   re-decide its status, persist the change
 ```
 
-![The Promise Ledger Architecture Diagram](docs/architecture.jpg)
+Steps 1–3 stream live in the web app (`/api/extract-stream`). The verification
+cycle and every MCP tool are LLM-free.
+
+| Component | Tech |
+|---|---|
+| `agents/promise_extractor.py` | `google.adk` `LlmAgent`, Gemini, Pydantic `PromiseExtraction` output schema |
+| `agents/promise_auditor.py` | `google.adk` `LlmAgent`, Gemma — a genuinely different model family |
+| `agents/promise_orchestrator.py` | the extract → audit → re-extract → gate → admit pipeline, as an async event stream |
+| `agents/falsifiability_gate.py` | deterministic admission check, no LLM |
+| `ledger/evidence.py` | HTTP fetch + HTML→text + whole-token keyword match, no JS |
+| `ledger/verifier.py` | the zero-LLM status decision table |
+| `ledger/promises.py` | store + scorecard; backend = JSON file / Firestore / in-memory |
+| `mcp_server/server.py` | FastMCP server exposing the ledger over the Model Context Protocol |
+| `web_app/` | FastAPI + a single static page: scorecard + live pipeline stream |
 
 ---
 
-## 🎯 The Attention Intelligence Layer
+## Quick start
 
-Computed deterministically in `agents/scoring.py` from real signals — never guessed by the LLM, so the number on screen can never disagree with its own breakdown:
-
-| Signal | What it measures |
-| :--- | :--- |
-| **Lifecycle stage** | `EMERGING` → `ACCELERATING` → `BREAKOUT` → `SATURATED`, derived from rank, traffic and news-coverage saturation of a single real snapshot. |
-| **Cross-market gaps** | Topics trending in a baseline market (e.g. `US`) not yet visible in a target market (e.g. `MX`) — observed directly, never an invented ETA. |
-| **Verdict** | `ACT_NOW` / `MONITOR` / `IGNORE` — a hard threshold on the total score, computed in Python (`derive_recommended_action`), not decided by the LLM. |
-
-## 🔮 The Forecast Ledger
-
-The core differentiator: no competitor researched (VyralFlow, Content_Studio.ai, YoTrends, vidIQ, Virlo) publishes this as a product. Every candidate with real velocity and a real cross-market gap generates falsifiable predictions at **1h, 4h, 12h and 24h** horizons simultaneously, stored with a timestamp in Firestore (see `ledger/README.md` for why this isn't a local SQLite file — Cloud Run's per-instance filesystem is ephemeral). A scheduled Cloud Run Job + Cloud Scheduler cycle (`ledger/run_cycle.py`, every 6 hours) resolves due predictions against a fresh real Trends pull and updates accumulated accuracy stats, exposed live via the `get_forecast_accuracy()` MCP tool. **Zero LLM calls** in this subsystem — pure deterministic computation + HTTP, so it's free, unlimited, and actually falsifiable instead of "the model says it remembers correctly."
-
----
-
-## 🤖 The Execution Layer (conditional, only on ACT_NOW)
-
-| Agent Name | Role & Responsibility | Core Tools / Engine |
-| :--- | :--- | :--- |
-| **1. 📈 TrendScoutAgent** | Discovers breakout Google searches, rising search intent, lifecycle stage and cross-market gaps in real time via the FastMCP server (real MCP protocol, `McpToolset`). Also checks a short keyword it distills from the niche against `get_niche_trend_signals` so a narrow niche isn't limited to whatever generic national news is trending that day. | FastMCP Server (`get_grounded_opportunity_candidates`, `get_niche_trend_signals`, `get_cross_market_gaps`) + `agents/scoring.py` |
-| **2. 🎬 ScriptHookAgent** | Converts the ACT_NOW opportunity into a high-retention video/carousel script with a 0-3s hook. | Gemini + Pydantic `HookAndScriptResult` |
-| **3. 🛡️ ViralityAuditorAgent** | **Critic Loop:** adversarial audit of retention power, brand safety, anti-cliché rules; rejects with a quoted weak line + rewrite until the reconciled virality score ≥ 80 (max 2 drafts). | Gemini + Pydantic `CriticAuditEvaluation` |
-| **3b. 🔁 GemmaAuditorAgent** | **Independent second opinion on Gemma** (a genuinely different model family, run concurrently with the Critic via `asyncio.gather`): re-audits the exact same draft with the identical instruction/schema. A weak sub-score or a real rejection reason either model raises is never silently dropped — `agents/scoring.py::reconcile_virality_audit` takes the conservative `min()` of each sub-score and unions the rejection reasons, matching the Critic's own "adversarial by default" philosophy. Degrades to Gemini's read alone if Gemma is unavailable. | Gemma (`gemma-4-26b-a4b-it`) + Pydantic `CriticAuditEvaluation` |
-| **4. 🎨 VisualCreativeAgent** | Generates Imagen/Midjourney cover prompts, color palettes, and tiered hashtag clusters for the **approved** script only. | Gemini + Pydantic `VisualDirectivesResult` |
-
-All five run as real `google.adk` `LlmAgent`s executed through an `InMemoryRunner`, not a hand-rolled `google.genai` call disguised as ADK.
-
----
-
-## 🚀 Quick Start & Local Setup
-
-### Prerequisites
-* Python 3.11+ (this project's own venv runs 3.14.3)
-* A free Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-
-### 1. Clone & Install Dependencies
 ```bash
-git clone https://github.com/yobanrg6-coder/The Promise Ledger.git
-cd The Promise Ledger
+git clone https://github.com/yobanrg6-coder/the-promise-ledger.git
+cd the-promise-ledger
+python -m venv venv && source venv/Scripts/activate   # or venv\Scripts\activate on cmd
 pip install -r requirements.txt
+cp .env.example .env          # add GEMINI_API_KEY for the live extraction demo
 ```
 
-### 2. Configure Environment
+**Seed the ledger** with the curated demo promises (hand-typed real
+announcements; the machine verifies them live — no LLM, no key needed):
+
 ```bash
-cp .env.example .env
+python -m ledger.seed --fresh
 ```
-Edit `.env` and set your key:
-```env
-GEMINI_API_KEY=your_actual_gemini_api_key
-MODEL=gemini-3.5-flash-lite
-```
-`gemini-3.5-flash-lite` is pinned to an explicit id to satisfy the hackathon's "Gemini 3.5 or newer" requirement, and it proved reliable under this project's tool-calling + large structured-output load. `gemini-3.6-flash` is a drop-in upgrade if you want more capability.
 
-### 3. Run the Studio (One-Click)
+This writes `data/ledger.json` (a copy is committed, so you can skip this and
+still have data).
+
+**Run the app:**
+
 ```bash
-python run.py
+python run.py           # FastMCP server + web app
+# open http://127.0.0.1:8000
 ```
-Open your browser at **`http://127.0.0.1:8000`**.
 
-### 4. Run the Forecast Ledger cycle manually (optional)
+**Run a verification cycle** (re-checks every due promise against its live
+evidence page, zero LLM):
+
 ```bash
-python ledger/run_cycle.py
+python -m ledger.run_cycle
 ```
-Needs credentials for the Firestore project (or run it from an environment already authenticated to one — see `ledger/README.md`). In production this runs automatically every 6 hours via a Cloud Run Job triggered by Cloud Scheduler, not a local scheduled task.
 
-### 5. Run the test suite
+**Tests:**
+
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/
+pytest tests/            # 61 tests, no network, no LLM
 ```
-61 tests: deterministic scoring (`test_scoring.py`), the ledger against an in-memory fake backend with no network (`test_ledger.py`), the Trends comparative-signal retry logic (`test_trends_service.py`), and ADK agent construction (`test_agents_construction.py`).
 
 ---
 
-## ☁️ Google Cloud Run Deployment
+## Deploy to Cloud Run
 
 ```bash
-# Build & deploy directly from source - Cloud Run builds the container itself
-# from the Dockerfile, no local Docker or separate gcloud builds step needed.
-gcloud run deploy promise_ledger --source . --region=us-central1
+# Cloud Run builds the container from the Dockerfile - no local Docker needed.
+# Store the Gemini key in Secret Manager, never as a plain env var.
+echo -n "your_gemini_api_key" | gcloud secrets create gemini-api-key --data-file=-
 
-# The Gemini key is never passed as a plain --set-env-vars value (that leaks it
-# into shell history and Cloud Run's own config metadata) - store it in Secret
-# Manager once, then reference it by name on deploy:
-echo -n "your_actual_gemini_api_key" | gcloud secrets create gemini-api-key --data-file=-
-gcloud run deploy promise_ledger --source . --region=us-central1 \
-    --min-instances=1 --max-instances=1 \
-    --set-env-vars MODEL=gemini-3.5-flash-lite \
+gcloud run deploy the-promise-ledger --source . --region=us-central1 \
+    --allow-unauthenticated --min-instances=1 --max-instances=1 \
+    --set-env-vars MODEL=gemini-3.5-flash-lite,LEDGER_BACKEND=json \
     --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 
-`--min-instances=1` keeps a warm instance running so judges never hit a cold-start abort
-(`"no available instance"` 500) on the first request after idle.
+`data/ledger.json` ships in the image as the baseline scorecard. Cloud Run's
+disk is ephemeral, so live writes during a session don't survive a cold start —
+set `LEDGER_BACKEND=firestore` for durable writes.
 
 ---
 
-## 🏆 Author & Hackathon Verification
-* **Developer:** Jose (Yoban) Rodríguez
-* **Google Cloud Public Profile:** [skills.google/public_profiles/6bac5b41-ee95-4a9a-b9ee-d871c4e31106](https://www.skills.google/public_profiles/6bac5b41-ee95-4a9a-b9ee-d871c4e31106) *(12 Official Skill Badges & GEAR Certified)*
-* **License:** MIT
+## Honest limitations
+
+- **Keyword brittleness.** If a page describes a shipped feature in words that
+  don't contain the check keywords, the verifier under-reports it. The seed set
+  shows this (`Stability AI` resolves `FULFILLED` but the page has no date, so
+  "on-time vs late" can't be established).
+- **Evidence decay.** Vendor changelogs are rolling windows; a 2024 entry can
+  scroll off by 2026. The verifier is designed to run *near* the deadline.
+- **Bot blocks.** Some official pages (`help.openai.com`) return HTTP 403 to
+  non-browser clients — that promise resolves `UNVERIFIABLE`, honestly.
+- The seed is 8 curated promises across 6 companies — enough to show the
+  mechanism, not a census.
+
+---
+
+## Author
+
+Jose (Yoban) Rodríguez · [Google Cloud profile](https://www.skills.google/public_profiles/6bac5b41-ee95-4a9a-b9ee-d871c4e31106) · MIT License

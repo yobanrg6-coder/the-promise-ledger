@@ -1,18 +1,28 @@
 """
-Firestore-backed store for The Promise Ledger.
+Store for The Promise Ledger.
 
 Every promise is persisted with its verbatim source quote and source URL the
 moment it's admitted, and its status is only ever changed by the zero-LLM
-verifier (ledger/verifier.py). Same pluggable-backend design as the original
-trend ledger: real Firestore in production, a network-free in-memory fake in
-tests - Cloud Run's per-instance disk is ephemeral, so a local file would
-lose the ledger on every scale-to-zero.
+verifier (ledger/verifier.py). Pluggable backend, picked by the LEDGER_BACKEND
+env var (see get_backend):
+
+  - "json" (default): a single JSON file (data/ledger.json). The seeded demo
+    ledger ships in the repo this way, so the app and the verification cycle
+    have real data to show with no cloud credentials. Cloud Run's disk is
+    ephemeral, so live writes there don't survive a cold start - the committed
+    file is always the baseline.
+  - "firestore": real Firestore, for a deployment that needs durable writes.
+  - "memory": network-free in-process fake, used by the tests.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
+import os
+import threading
 import uuid
+from pathlib import Path
 from typing import Any, Protocol
 
 from agents.promise_schemas import (
@@ -24,6 +34,7 @@ from agents.promise_schemas import (
 
 COLLECTION_NAME = "promises"
 GCP_PROJECT = "topicahead-hackathon"  # immutable GCP project id (pre-rebrand); display name is "The Promise Ledger"
+DEFAULT_JSON_PATH = Path(__file__).resolve().parent.parent / "data" / "ledger.json"
 
 
 def utcnow_iso() -> str:
@@ -83,16 +94,84 @@ class InMemoryBackend:
         return [dict(d) for d in self._docs.values() if d.get("status") == status]
 
 
+class JsonFileBackend:
+    """File-backed store: the whole ledger is one JSON object on disk.
+
+    Fine for a single-writer demo (the seed script, the hourly verification
+    cycle, one web instance). Every mutation rewrites the file under a lock so
+    a half-written file can't be observed by a concurrent reader in the same
+    process.
+    """
+
+    def __init__(self, path: str | os.PathLike[str] | None = None) -> None:
+        self._path = Path(path or DEFAULT_JSON_PATH)
+        self._lock = threading.Lock()
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _load(self) -> dict[str, dict[str, Any]]:
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+        return {d["id"]: d for d in raw.get("promises", [])} if isinstance(raw, dict) else {}
+
+    def _dump(self, docs: dict[str, dict[str, Any]]) -> None:
+        tmp = self._path.with_suffix(".json.tmp")
+        payload = {"promises": list(docs.values())}
+        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(self._path)
+
+    def insert(self, doc: dict[str, Any]) -> None:
+        with self._lock:
+            docs = self._load()
+            docs[doc["id"]] = dict(doc)
+            self._dump(docs)
+
+    def get(self, promise_id: str) -> dict[str, Any] | None:
+        d = self._load().get(promise_id)
+        return dict(d) if d else None
+
+    def update(self, promise_id: str, fields: dict[str, Any]) -> None:
+        with self._lock:
+            docs = self._load()
+            if promise_id not in docs:
+                raise KeyError(promise_id)
+            docs[promise_id].update(fields)
+            self._dump(docs)
+
+    def all(self) -> list[dict[str, Any]]:
+        return [dict(d) for d in self._load().values()]
+
+    def by_status(self, status: str) -> list[dict[str, Any]]:
+        return [dict(d) for d in self._load().values() if d.get("status") == status]
+
+
 _default_backend: PromiseBackend | None = None
 
 
-def _backend(backend: PromiseBackend | None) -> PromiseBackend:
-    if backend is not None:
-        return backend
+def get_backend() -> PromiseBackend:
+    """The process-wide default backend, chosen by LEDGER_BACKEND
+    ("json" | "firestore" | "memory"; default "json")."""
     global _default_backend
     if _default_backend is None:
-        _default_backend = FirestoreBackend(project=GCP_PROJECT)
+        kind = os.getenv("LEDGER_BACKEND", "json").strip().lower()
+        if kind == "firestore":
+            _default_backend = FirestoreBackend(project=GCP_PROJECT)
+        elif kind == "memory":
+            _default_backend = InMemoryBackend()
+        else:
+            _default_backend = JsonFileBackend(os.getenv("LEDGER_JSON_PATH") or None)
     return _default_backend
+
+
+def reset_default_backend() -> None:
+    """Drop the cached default backend (tests / after an env change)."""
+    global _default_backend
+    _default_backend = None
+
+
+def _backend(backend: PromiseBackend | None) -> PromiseBackend:
+    return backend if backend is not None else get_backend()
 
 
 # --------------------------------------------------------------------------- #
@@ -114,6 +193,15 @@ def admit_promise(
     auditor_agreed: bool | None = None,
     backend: PromiseBackend | None = None,
 ) -> str:
+    # Drop duplicate keywords (case-insensitive, keep first spelling) so the
+    # verifier's "n of total keywords present" ratio can't be inflated by a
+    # repeated token.
+    _seen: set[str] = set()
+    deduped_keywords = [
+        k for k in check_keywords
+        if k.strip() and not (k.strip().lower() in _seen or _seen.add(k.strip().lower()))
+    ]
+
     promise = LedgerPromise(
         id=str(uuid.uuid4()),
         company=company,
@@ -124,7 +212,7 @@ def admit_promise(
         deadline_raw=deadline_raw,
         deadline_date=deadline_date,
         observable_outcome=observable_outcome,
-        check_keywords=check_keywords,
+        check_keywords=deduped_keywords,
         evidence_url=evidence_url,
         status=PromiseStatus.PENDING,
         created_at=utcnow_iso(),
@@ -137,6 +225,7 @@ def admit_promise(
 
 def apply_verification(promise_id: str, result, backend: PromiseBackend | None = None) -> None:
     """Persist a VerificationResult onto a promise."""
+    be = _backend(backend)
     fields: dict[str, Any] = {
         "status": result.status.value if hasattr(result.status, "value") else str(result.status),
         "status_reason": result.reason,
@@ -145,8 +234,13 @@ def apply_verification(promise_id: str, result, backend: PromiseBackend | None =
         "last_checked_at": result.checked_at or utcnow_iso(),
     }
     if fields["status"] in {s.value for s in RESOLVED_STATUSES}:
-        fields["resolved_at"] = utcnow_iso()
-    _backend(backend).update(promise_id, fields)
+        # resolved_at records when the promise FIRST reached a gradeable
+        # outcome. Periodic re-verification must not keep bumping it, or the
+        # ledger loses the real resolution date.
+        existing = be.get(promise_id) or {}
+        if not existing.get("resolved_at"):
+            fields["resolved_at"] = utcnow_iso()
+    be.update(promise_id, fields)
 
 
 # --------------------------------------------------------------------------- #
@@ -161,17 +255,31 @@ def list_promises(backend: PromiseBackend | None = None) -> list[dict[str, Any]]
 
 
 def due_for_check(check_date: dt.date | None = None, backend: PromiseBackend | None = None) -> list[dict[str, Any]]:
-    """PENDING or still-tracking promises whose deadline has passed."""
+    """PENDING or still-tracking promises whose deadline has passed.
+
+    UNVERIFIABLE promises are retried while there's still a reasonable chance
+    the evidence page comes back, but they stop being re-queued once the
+    deadline is more than ABANDON_GRACE_DAYS old - otherwise a permanently
+    dead URL is re-fetched on every cycle forever and never leaves the queue.
+    """
+    from ledger.verifier import ABANDON_GRACE_DAYS
+
     today = check_date or dt.datetime.now(dt.timezone.utc).date()
+    trackable = {PromiseStatus.PENDING.value, PromiseStatus.DELAYED.value, PromiseStatus.UNVERIFIABLE.value}
     out = []
     for d in _backend(backend).all():
         status = d.get("status")
-        if status in {PromiseStatus.PENDING.value, PromiseStatus.DELAYED.value, PromiseStatus.UNVERIFIABLE.value}:
-            try:
-                if dt.date.fromisoformat(d["deadline_date"]) <= today:
-                    out.append(d)
-            except (KeyError, ValueError):
-                continue
+        if status not in trackable:
+            continue
+        try:
+            deadline = dt.date.fromisoformat(d["deadline_date"])
+        except (KeyError, ValueError):
+            continue
+        if deadline > today:
+            continue
+        if status == PromiseStatus.UNVERIFIABLE.value and today > deadline + dt.timedelta(days=ABANDON_GRACE_DAYS):
+            continue
+        out.append(d)
     return out
 
 

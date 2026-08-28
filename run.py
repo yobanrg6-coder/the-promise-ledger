@@ -25,12 +25,14 @@ load_dotenv()
 MCP_READY_TIMEOUT_SECONDS = 15
 
 
-def fail_fast_on_missing_config():
-    """Refuse to boot with a config that would only fail later, mid-demo."""
+def warn_on_missing_config():
+    """The scorecard, the MCP tools and the verification cycle all work with no
+    key. Only the live extraction demo (/api/extract-stream) needs one - warn,
+    don't refuse to boot."""
     if not os.getenv("GEMINI_API_KEY"):
-        print("\n❌ GEMINI_API_KEY is not set.")
-        print("   Copy .env.example to .env and add your key from https://aistudio.google.com/\n")
-        sys.exit(1)
+        print("\n⚠  GEMINI_API_KEY is not set - the scorecard and MCP tools still work,")
+        print("   but the live 'extract a promise' demo will return an error until you set it")
+        print("   (copy .env.example to .env, key from https://aistudio.google.com/).\n")
 
 
 def start_mcp_server():
@@ -67,7 +69,7 @@ def main():
     ==================================================================
     """)
 
-    fail_fast_on_missing_config()
+    warn_on_missing_config()
 
     # 8080 matches mcp_server/server.py's own MCP_SERVER_PORT default for local
     # dev. Docker/Cloud Run always sets MCP_SERVER_URL explicitly to 8081 (see
@@ -84,7 +86,7 @@ def main():
         print("   FastMCP Server is up.")
     else:
         print(f"   WARNING: FastMCP Server did not respond within {MCP_READY_TIMEOUT_SECONDS}s.")
-        print("      TrendScoutAgent tool calls will fail until it is reachable.")
+        print("      MCP ledger tools will be unreachable until it comes up.")
 
     # 2. Start Web Studio Backend
     # Cloud Run always injects PORT and expects the container to bind to it -

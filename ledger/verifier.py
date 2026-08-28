@@ -29,23 +29,30 @@ from ledger.evidence import fetch_evidence, keyword_hits
 
 ABANDON_GRACE_DAYS = 180
 
-_MONTHS = {
-    m.lower(): i
-    for i, m in enumerate(
-        ["January", "February", "March", "April", "May", "June", "July",
-         "August", "September", "October", "November", "December"],
-        start=1,
-    )
-}
+_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"]
+_MONTHS = {m.lower(): i for i, m in enumerate(_MONTH_NAMES, start=1)}
+# Accept the standard 3-letter abbreviations too ("Oct", "sep", ...).
+_MONTHS.update({m[:3].lower(): i for i, m in enumerate(_MONTH_NAMES, start=1)})
+
+# re.IGNORECASE on the month patterns so "oct 28, 2024" / "OCTOBER 28, 2024"
+# are read as well as Titlecase; the _MONTHS lookup still gates what counts.
 _DATE_PATTERNS = [
     re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"),
-    re.compile(r"\b([A-Z][a-z]+)\s+(\d{1,2}),\s+(\d{4})\b"),
-    re.compile(r"\b(\d{1,2})\s+([A-Z][a-z]+)\s+(\d{4})\b"),
+    re.compile(r"\b(\d{4})/(\d{2})/(\d{2})\b"),
+    re.compile(r"\b([A-Za-z]{3,9})\s+(\d{1,2}),\s+(\d{4})\b", re.IGNORECASE),
+    re.compile(r"\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b", re.IGNORECASE),
 ]
 
 
 def _majority(n_hits: int, n_total: int) -> bool:
-    return n_total > 0 and n_hits >= max(2, (n_total + 1) // 2)
+    """A strict majority: more than half of the check_keywords, min 2.
+
+    For an even keyword count this now requires > 50% (3 of 4), not exactly
+    half. The min-2 floor keeps a lone repeated/whitelisted token from ever
+    resolving a promise on its own.
+    """
+    return n_total > 0 and n_hits >= max(2, n_total // 2 + 1)
 
 
 def _dates_near(text: str, anchor: str, radius: int = 400) -> list[dt.date]:
@@ -57,16 +64,16 @@ def _dates_near(text: str, anchor: str, radius: int = 400) -> list[dt.date]:
     for rx in _DATE_PATTERNS:
         for m in rx.finditer(window):
             try:
-                if rx is _DATE_PATTERNS[0]:
+                if rx in (_DATE_PATTERNS[0], _DATE_PATTERNS[1]):  # YYYY-MM-DD / YYYY/MM/DD
                     y, mo, d = int(m[1]), int(m[2]), int(m[3])
-                elif rx is _DATE_PATTERNS[1]:
+                elif rx is _DATE_PATTERNS[2]:  # Month D, YYYY
                     mo = _MONTHS.get(m[1].lower())
                     d, y = int(m[2]), int(m[3])
-                else:
+                else:  # D Month YYYY
                     d = int(m[1])
                     mo = _MONTHS.get(m[2].lower())
                     y = int(m[3])
-                if mo and 1 <= d <= 31 and 2015 <= y <= 2100:
+                if mo and 1 <= mo <= 12 and 1 <= d <= 31 and 2015 <= y <= 2100:
                     out.append(dt.date(y, mo, d))
             except (ValueError, TypeError):
                 continue

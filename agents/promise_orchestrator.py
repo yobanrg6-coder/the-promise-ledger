@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import sys
 import uuid
 from collections.abc import AsyncGenerator
@@ -96,6 +97,9 @@ class PromiseLedgerOrchestrator:
             text = final_event.content.parts[-1].text
         if not text:
             raise AgentExecutionError(f"{label}: no parsable output")
+        # Models often wrap structured output in a ```json ... ``` fence;
+        # strip it before parsing so the fallback path doesn't fail on it.
+        text = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", text.strip())
         try:
             return output_model.model_validate_json(text)
         except ValidationError as exc:
@@ -111,7 +115,9 @@ class PromiseLedgerOrchestrator:
                 timeout=GEMMA_TIMEOUT_SECONDS,
             )
         except (asyncio.TimeoutError, AgentExecutionError) as exc:
-            logger.warning("Auditor unavailable, continuing on extractor + gate alone: %s", exc)
+            # asyncio.TimeoutError stringifies to "" on 3.11+, so name the type.
+            detail = str(exc) or type(exc).__name__
+            logger.warning("Auditor unavailable, continuing on extractor + gate alone: %s", detail)
             return None
 
     async def process_announcement_stream(

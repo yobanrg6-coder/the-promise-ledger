@@ -20,21 +20,36 @@ import re
 
 from agents.promise_schemas import GateResult, PromiseExtraction
 
-MAX_DEADLINE_HORIZON_DAYS = 5 * 365
+MAX_DEADLINE_HORIZON_YEARS = 5
 _GENERIC_KEYWORDS = {
     "api", "ai", "app", "beta", "cloud", "feature", "launch", "release",
     "update", "new", "available", "support", "model", "platform", "tool",
 }
 
 
+def _too_far_out(announced: dt.date, deadline: dt.date) -> bool:
+    """True if `deadline` is more than MAX_DEADLINE_HORIZON_YEARS calendar
+    years after `announced`. Compared by calendar date, not a fixed day
+    count, so a legitimate exact-5-year promise spanning a leap day isn't
+    rejected for being 1826 days instead of 1825."""
+    horizon = announced.replace(year=announced.year + MAX_DEADLINE_HORIZON_YEARS) \
+        if not (announced.month == 2 and announced.day == 29) \
+        else announced.replace(year=announced.year + MAX_DEADLINE_HORIZON_YEARS, day=28)
+    return deadline > horizon
+
+
 def _usable_keywords(keywords: list[str]) -> list[str]:
-    out = []
+    out: list[str] = []
+    seen: set[str] = set()
     for k in keywords:
         k = k.strip()
         if len(k) < 3:
             continue
         if k.lower() in _GENERIC_KEYWORDS and " " not in k:
             continue  # single generic word matches everything -> useless as a check
+        if k.lower() in seen:
+            continue  # duplicates don't add checking power -> don't let them pad the count
+        seen.add(k.lower())
         out.append(k)
     return out
 
@@ -60,8 +75,11 @@ def run_gate(extraction: PromiseExtraction, announced_date: str) -> GateResult:
 
     if deadline < announced:
         return GateResult(accepted=False, reason=f"deadline {deadline} is before the announcement {announced}")
-    if (deadline - announced).days > MAX_DEADLINE_HORIZON_DAYS:
-        return GateResult(accepted=False, reason=f"deadline {deadline} is more than 5 years past the announcement")
+    if _too_far_out(announced, deadline):
+        return GateResult(
+            accepted=False,
+            reason=f"deadline {deadline} is more than {MAX_DEADLINE_HORIZON_YEARS} years past the announcement",
+        )
 
     if len(extraction.observable_outcome.split()) < 3:
         return GateResult(accepted=False, reason="observable_outcome too thin to check")

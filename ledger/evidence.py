@@ -21,7 +21,10 @@ import httpx
 
 _UA = "Mozilla/5.0 (compatible; PromiseLedgerBot/1.0; +https://github.com/yobanrg6-coder/the-promise-ledger)"
 _TAG_RE = re.compile(r"(?s)<[^>]+>")
-_DROP_RE = re.compile(r"(?is)<(script|style|noscript|template|svg).*?</\1>")
+# Drop executable / non-visible blocks. The `(?:</\1>|\Z)` tail means an
+# unclosed <script> (broken markup) still gets stripped to end-of-document
+# instead of leaking its JS source into evidence.text as fake "content".
+_DROP_RE = re.compile(r"(?is)<(script|style|noscript|template|svg)\b.*?(?:</\1>|\Z)")
 _WS_RE = re.compile(r"\s+")
 
 # Below this many characters of extracted text, a 200 response is almost
@@ -66,5 +69,21 @@ def fetch_evidence(url: str, timeout: float = 25.0) -> Evidence:
 
 
 def keyword_hits(text: str, keywords: list[str]) -> list[str]:
-    low = text.lower()
-    return [k for k in keywords if k.strip() and k.strip().lower() in low]
+    """Keywords that appear in `text` as whole tokens.
+
+    Uses non-word-char lookarounds instead of a raw substring test so short
+    tokens ("GA", "Pro", "iOS", "v2") don't get false hits inside ordinary
+    prose ("navigation", "improving", "studios", "revamp"). A keyword whose
+    own edge is a non-word char (e.g. ".NET", "C++") falls back to a plain
+    substring check, since a lookaround there would never anchor.
+    """
+    hits: list[str] = []
+    for k in keywords:
+        needle = k.strip()
+        if not needle:
+            continue
+        left = r"(?<!\w)" if needle[0].isalnum() or needle[0] == "_" else ""
+        right = r"(?!\w)" if needle[-1].isalnum() or needle[-1] == "_" else ""
+        if re.search(left + re.escape(needle) + right, text, re.IGNORECASE):
+            hits.append(k)
+    return hits
