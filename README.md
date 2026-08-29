@@ -163,12 +163,28 @@ directly, so the public demo is fully functional without it.
   don't contain the check keywords, the verifier under-reports it. The seed set
   shows this (`Stability AI` resolves `FULFILLED` but the page has no date, so
   "on-time vs late" can't be established).
-- **Evidence decay.** Vendor changelogs are rolling windows; a 2024 entry can
-  scroll off by 2026. The verifier is designed to run *near* the deadline.
+- **Evidence decay, and the fallback.** Vendor changelogs are rolling windows;
+  a 2024 entry can scroll off by 2026. The verifier is designed to run *near*
+  the deadline. When a fact has already scrolled off the official page, the
+  `evidence_url` for that seed entry points at a stable, dated public record
+  instead — the `Anthropic` row checks a dated write-up
+  (`simonwillison.net/.../haiku/`) rather than Anthropic's own changelog,
+  which no longer lists the 2024 Haiku release. That choice is the one piece
+  of human curation the pipeline can't remove; it is visible in
+  `ledger/seed_data.py` with a comment, and the verdict it produces
+  (`FULFILLED_LATE`) is still decided by the same zero-LLM rule.
+- **Date attribution is a heuristic.** The verifier reads the earliest date
+  near the first keyword hit. On a page that shows both an announcement date
+  and a later ship date next to the model name it can pick the earlier one,
+  biasing toward `FULFILLED` over `FULFILLED_LATE`. Pointing `evidence_url` at
+  a page where the ship date is the one next to the feature name is, again,
+  curation.
 - **Bot blocks.** Some official pages (`help.openai.com`) return HTTP 403 to
   non-browser clients — that promise resolves `UNVERIFIABLE`, honestly.
 - The seed is 8 curated promises across 6 companies — enough to show the
-  mechanism, not a census.
+  mechanism, not a census. Two resolve to `FULFILLED (undated)` and one to
+  `UNVERIFIABLE`, so the on-time rate is computed over just five datable
+  promises; treat the headline percentage as illustrative.
 
 ---
 
