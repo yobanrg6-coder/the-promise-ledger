@@ -38,7 +38,15 @@ def _too_far_out(announced: dt.date, deadline: dt.date) -> bool:
     return deadline > horizon
 
 
-def _usable_keywords(keywords: list[str]) -> list[str]:
+def usable_keywords(keywords: list[str]) -> list[str]:
+    """The check_keywords that actually carry verification weight: trimmed,
+    >=3 chars, not a lone generic word, de-duplicated case-insensitively.
+
+    The ledger stores exactly this set, so the verifier's "majority of the
+    keywords present" is measured against the same list the gate admitted on -
+    a promise can't be padded past the gate with filler and then be
+    unverifiable because the verifier counts the filler too.
+    """
     out: list[str] = []
     seen: set[str] = set()
     for k in keywords:
@@ -84,7 +92,7 @@ def run_gate(extraction: PromiseExtraction, announced_date: str) -> GateResult:
     if len(extraction.observable_outcome.split()) < 3:
         return GateResult(accepted=False, reason="observable_outcome too thin to check")
 
-    usable = _usable_keywords(extraction.check_keywords)
+    usable = usable_keywords(extraction.check_keywords)
     if len(usable) < 2:
         return GateResult(
             accepted=False,

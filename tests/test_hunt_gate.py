@@ -3,7 +3,7 @@ Adversarial tests for agents.falsifiability_gate - hunting edge cases and bugs.
 No network, no LLM calls.
 """
 
-from agents.falsifiability_gate import _usable_keywords, run_gate
+from agents.falsifiability_gate import run_gate, usable_keywords
 from agents.promise_schemas import PromiseExtraction
 
 
@@ -55,11 +55,11 @@ def test_gate_rejects_duplicate_identical_keywords():
     r = run_gate(extraction, "2024-01-01")
     assert not r.accepted
 
-    usable = _usable_keywords(extraction.check_keywords)
+    usable = usable_keywords(extraction.check_keywords)
     assert usable == ["Feature X"]
 
     # Case-insensitive: "feature x" is the same token as "Feature X".
-    assert _usable_keywords(["Feature X", "feature x", "  FEATURE X "]) == ["Feature X"]
+    assert usable_keywords(["Feature X", "feature x", "  FEATURE X "]) == ["Feature X"]
 
 
 # =========================================================================== #
@@ -130,7 +130,7 @@ def test_gate_handles_empty_extraction_gracefully():
 def test_usable_keywords_filters_short_and_generic_but_keeps_phrases():
     """Short (<3 chars) and single generic words are removed, multi-word phrases kept."""
     keywords = ["AI", "v2", "beta", "launch", "beta program", "cloud update", "Claude 3.5"]
-    usable = _usable_keywords(keywords)
+    usable = usable_keywords(keywords)
     assert "AI" not in usable
     assert "v2" not in usable
     assert "beta" not in usable

@@ -6,9 +6,47 @@ No network, no LLM calls.
 import datetime as dt
 import time
 
+import pytest
+
 from agents.promise_schemas import LedgerPromise, PromiseStatus, VerificationResult
 from ledger import promises
 from ledger.promises import InMemoryBackend
+
+
+# =========================================================================== #
+# 0. admit_promise stores exactly the gate-usable keyword set
+# =========================================================================== #
+def test_admit_promise_stores_only_the_vetted_keywords():
+    """The gate admits on `usable_keywords(...)`; the verifier measures its
+    majority against `len(check_keywords)`. If admit_promise kept filler the
+    gate ignored, a promise could pass the gate on 2 strong keywords yet never
+    reach FULFILLED because the verifier's denominator counts the filler too."""
+    be = InMemoryBackend()
+    pid = promises.admit_promise(
+        company="Acme", promise_text="ship X", source_quote="q",
+        source_url="https://example.com", announced_date="2024-01-01",
+        deadline_raw="Q2 2024", deadline_date="2024-06-30",
+        observable_outcome="Feature X on the dashboard",
+        # "api" and "beta" are lone generic words; "x" is too short; "Feature X"
+        # is duplicated. Only two tokens actually carry weight.
+        check_keywords=["Feature X", "feature x", "api", "beta", "x", "Acme Console"],
+        backend=be,
+    )
+    stored = promises.get_promise(pid, backend=be)["check_keywords"]
+    assert stored == ["Feature X", "Acme Console"]
+
+
+def test_admit_promise_rejects_when_fewer_than_two_usable_keywords():
+    be = InMemoryBackend()
+    with pytest.raises(ValueError):
+        promises.admit_promise(
+            company="Acme", promise_text="ship X", source_quote="q",
+            source_url="https://example.com", announced_date="2024-01-01",
+            deadline_raw="Q2 2024", deadline_date="2024-06-30",
+            observable_outcome="Feature X on the dashboard",
+            check_keywords=["api", "beta", "new"],  # all filler
+            backend=be,
+        )
 
 
 # =========================================================================== #

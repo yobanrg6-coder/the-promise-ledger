@@ -25,6 +25,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
+from agents.falsifiability_gate import usable_keywords
 from agents.promise_schemas import (
     RESOLVED_STATUSES,
     LedgerPromise,
@@ -192,14 +193,15 @@ def admit_promise(
     auditor_agreed: bool | None = None,
     backend: PromiseBackend | None = None,
 ) -> str:
-    # Drop duplicate keywords (case-insensitive, keep first spelling) so the
-    # verifier's "n of total keywords present" ratio can't be inflated by a
-    # repeated token.
-    _seen: set[str] = set()
-    deduped_keywords = [
-        k for k in check_keywords
-        if k.strip() and not (k.strip().lower() in _seen or _seen.add(k.strip().lower()))
-    ]
+    # Store exactly the keywords the falsifiability gate admits on: trimmed,
+    # de-duplicated, filler dropped. The verifier's "majority of the keywords
+    # present" is then measured against the same list, so a promise can't be
+    # padded past the gate and then be structurally unverifiable.
+    vetted_keywords = usable_keywords(check_keywords)
+    if len(vetted_keywords) < 2:
+        raise ValueError(
+            f"admit_promise needs >=2 specific check_keywords, got {vetted_keywords or 'none usable'}"
+        )
 
     promise = LedgerPromise(
         id=str(uuid.uuid4()),
@@ -211,7 +213,7 @@ def admit_promise(
         deadline_raw=deadline_raw,
         deadline_date=deadline_date,
         observable_outcome=observable_outcome,
-        check_keywords=deduped_keywords,
+        check_keywords=vetted_keywords,
         evidence_url=evidence_url,
         status=PromiseStatus.PENDING,
         created_at=utcnow_iso(),
