@@ -1,24 +1,35 @@
 """
-The zero-LLM verifier. Given a promise and the date it's being checked on,
-fetch its evidence page and decide a PromiseStatus from keyword presence +
-deadline arithmetic + a best-effort ship-date read. No model call anywhere in
-this file - "we said X shipped and it did" must never be an inferred claim.
+The zero-LLM verifier. Given a promise and the date it's checked on, decide a
+PromiseStatus from keyword presence + point-in-time evidence + deadline
+arithmetic. No model call anywhere in this file - "we said X shipped and it
+did" must never be an inferred claim.
+
+Two probes, both LLM-free:
+
+  1. The official page **as archived on or before the deadline** (Wayback
+     Machine). If the check keywords are present in that capture, the promise
+     was kept ON TIME and the capture timestamp is the dated proof - no
+     prose-date parsing, no third party beyond a neutral public archive. If
+     that capture exists and the keywords are ABSENT, that is hard proof it
+     had not shipped by the deadline.
+
+  2. The page now (live, or a recent archive capture if the live page is
+     bot-blocked / JS-only). Combined with probe 1 this yields FULFILLED_LATE
+     vs DELAYED vs ABANDONED.
 
 Decision table (deadline D, check date T):
-  fetch failed / SPA shell .................... UNVERIFIABLE
-  majority of check_keywords present:
-      a dated ship signal <= D on the page .... FULFILLED       (ship_date_confirmed=True)
-      a dated ship signal >  D ................ FULFILLED_LATE   (ship_date_confirmed=True)
-      no dateable ship signal ................. FULFILLED        (ship_date_confirmed=False; the
-                                                                 scorecard keeps these out of the
-                                                                 on-time rate, neither on time nor late)
-  some (>=1) but not a majority present:
-      T <= D ................................. PENDING
-      T >  D ................................. PARTIALLY_FULFILLED
-  none present:
-      T <= D ................................. PENDING
-      D < T <= D + ABANDON_GRACE_DAYS ........ DELAYED
-      T >  D + ABANDON_GRACE_DAYS ............ ABANDONED
+  keywords present in the on/before-D archive capture ...... FULFILLED (on time)
+  absent at D, present now ................................. FULFILLED_LATE
+  no archive capture at D; present now:
+      a page date <= D ...................................... FULFILLED (on time)
+      a page date >  D ...................................... FULFILLED_LATE
+      no readable date ..................................... FULFILLED (undated - kept
+                                                             out of the on-time rate)
+  some (>=1) but not a majority present, T > D ............. PARTIALLY_FULFILLED
+  none present:  T <= D .................................... PENDING
+                 D < T <= D + 180d ....................... DELAYED
+                 T >  D + 180d ........................... ABANDONED
+  live page and archive both unusable ..................... UNVERIFIABLE
 """
 
 from __future__ import annotations
@@ -27,6 +38,7 @@ import datetime as dt
 import re
 
 from agents.promise_schemas import LedgerPromise, PromiseStatus, VerificationResult
+from ledger.archive import snapshot_near
 from ledger.evidence import fetch_evidence, keyword_hits
 
 ABANDON_GRACE_DAYS = 180
@@ -39,9 +51,8 @@ _MONTHS.update({m[:3].lower(): i for i, m in enumerate(_MONTH_NAMES, start=1)})
 
 # re.IGNORECASE on the month patterns so "oct 28, 2024" / "OCTOBER 28, 2024"
 # are read as well as Titlecase; the _MONTHS lookup still gates what counts.
-# The `(?:st|nd|rd|th)?` makes the day ordinal optional, so a page that dates a
-# ship as "4th November 2024" / "November 4th, 2024" (common in prose changelogs
-# and blog posts) is read as well as "4 November 2024" / "November 4, 2024".
+# The `(?:st|nd|rd|th)?` makes the day ordinal optional, so "4th November 2024"
+# / "November 4th, 2024" is read as well as "4 November 2024".
 _DATE_PATTERNS = [
     re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"),
     re.compile(r"\b(\d{4})/(\d{2})/(\d{2})\b"),
@@ -53,8 +64,8 @@ _DATE_PATTERNS = [
 def _majority(n_hits: int, n_total: int) -> bool:
     """A strict majority: more than half of the check_keywords, min 2.
 
-    For an even keyword count this now requires > 50% (3 of 4), not exactly
-    half. The min-2 floor keeps a lone repeated/whitelisted token from ever
+    For an even keyword count this requires > 50% (3 of 4), not exactly half.
+    The min-2 floor keeps a lone repeated/whitelisted token from ever
     resolving a promise on its own.
     """
     return n_total > 0 and n_hits >= max(2, n_total // 2 + 1)
@@ -85,9 +96,27 @@ def _dates_near(text: str, anchor: str, radius: int = 400) -> list[dt.date]:
     return out
 
 
+def _result(status, reason, *, url, now_iso, hits=None, excerpt="",
+            ship_date_confirmed=None, method="", captured="") -> VerificationResult:
+    return VerificationResult(
+        status=status,
+        reason=reason,
+        evidence_url=url,
+        evidence_excerpt=excerpt,
+        keyword_hits=hits or [],
+        checked_at=now_iso,
+        ship_date_confirmed=ship_date_confirmed,
+        verification_method=method,
+        evidence_captured_at=captured,
+    )
+
+
 def verify_promise(promise: LedgerPromise, check_date: dt.date | None = None) -> VerificationResult:
     today = check_date or dt.datetime.now(dt.timezone.utc).date()
     now_iso = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    url = promise.evidence_url
+    keywords = promise.check_keywords
+    total = len(keywords)
 
     # A malformed date on the stored record is a data problem, not a delivery
     # signal - report it as UNVERIFIABLE instead of raising out of the cycle.
@@ -95,79 +124,100 @@ def verify_promise(promise: LedgerPromise, check_date: dt.date | None = None) ->
         deadline = dt.date.fromisoformat(promise.deadline_date)
         announced = dt.date.fromisoformat(promise.announced_date)
     except (ValueError, TypeError) as exc:
-        return VerificationResult(
-            status=PromiseStatus.UNVERIFIABLE,
-            reason=f"promise record has an unparseable date ({exc})",
-            evidence_url=promise.evidence_url,
-            checked_at=now_iso,
-        )
+        return _result(PromiseStatus.UNVERIFIABLE,
+                       f"promise record has an unparseable date ({exc})",
+                       url=url, now_iso=now_iso, method="unverifiable")
 
-    ev = fetch_evidence(promise.evidence_url)
+    # ---- Probe 1: the official page as archived on or before the deadline ----
+    absent_by_deadline = ""
+    snap = snapshot_near(url, deadline)
+    if snap and snap.ok and announced <= snap.captured <= deadline:
+        ev_d = fetch_evidence(snap.archive_url)
+        if ev_d.ok and not ev_d.looks_like_spa_shell:
+            hits_d = keyword_hits(ev_d.text, keywords)
+            if _majority(len(hits_d), total):
+                return _result(
+                    PromiseStatus.FULFILLED,
+                    f"{len(hits_d)}/{total} check keywords present on {url} as archived "
+                    f"{snap.captured.isoformat()} (on or before deadline {deadline.isoformat()})",
+                    url=url, now_iso=now_iso, hits=hits_d,
+                    excerpt=ev_d.excerpt_around(hits_d[0]),
+                    ship_date_confirmed=True, method="wayback@deadline",
+                    captured=snap.captured.isoformat(),
+                )
+            absent_by_deadline = f"absent from {url} as archived {snap.captured.isoformat()}"
+
+    # ---- Probe 2: the page now (live, or a recent archive capture) ----
+    ev = fetch_evidence(url)
+    method = "live-page"
+    captured_now = ""
+    if not ev.ok or ev.looks_like_spa_shell:
+        snap_now = snapshot_near(url, today)
+        if snap_now and snap_now.ok:
+            ev = fetch_evidence(snap_now.archive_url)
+            method, captured_now = "wayback@now", snap_now.captured.isoformat()
+
     if not ev.ok or ev.looks_like_spa_shell:
         why = ev.error or "page returned only a JS shell / navigation, no checkable content"
-        return VerificationResult(
-            status=PromiseStatus.UNVERIFIABLE,
-            reason=f"could not verify against {promise.evidence_url or '(no url)'}: {why}",
-            evidence_url=ev.url,
-            checked_at=now_iso,
-        )
+        return _result(PromiseStatus.UNVERIFIABLE,
+                       f"could not verify against {url or '(no url)'}: {why}",
+                       url=url, now_iso=now_iso, method="unverifiable")
 
-    hits = keyword_hits(ev.text, promise.check_keywords)
-    n, total = len(hits), len(promise.check_keywords)
+    hits = keyword_hits(ev.text, keywords)
+    n = len(hits)
     excerpt = ev.excerpt_around(hits[0]) if hits else ev.text[:300]
-    ship_date_confirmed: bool | None = None
+    seen = f" (archived {captured_now})" if captured_now else ""
 
     if _majority(n, total):
-        ship_dates = [d for d in _dates_near(ev.text, hits[0]) if d >= announced]
-        earliest = min(ship_dates) if ship_dates else None
+        if absent_by_deadline:
+            return _result(PromiseStatus.FULFILLED_LATE,
+                           f"{absent_by_deadline}; {n}/{total} keywords present now{seen} "
+                           f"- shipped after deadline {deadline.isoformat()}",
+                           url=url, now_iso=now_iso, hits=hits, excerpt=excerpt,
+                           ship_date_confirmed=True, method=f"{method}+archive-gap",
+                           captured=captured_now)
+        # No point-in-time capture pins the timing - fall back to a date on the page.
+        page_dates = [d for d in _dates_near(ev.text, hits[0]) if d >= announced]
+        earliest = min(page_dates) if page_dates else None
         if earliest and earliest <= deadline:
-            status, reason = PromiseStatus.FULFILLED, (
-                f"{n}/{total} keywords present on {ev.url}; dated {earliest.isoformat()}, on or before deadline {deadline.isoformat()}"
-            )
-            ship_date_confirmed = True
-        elif earliest and earliest > deadline:
-            status, reason = PromiseStatus.FULFILLED_LATE, (
-                f"{n}/{total} keywords present; shipped {earliest.isoformat()}, "
-                f"{(earliest - deadline).days}d after deadline {deadline.isoformat()}"
-            )
-            ship_date_confirmed = True
-        else:
-            status, reason = PromiseStatus.FULFILLED, (
-                f"{n}/{total} keywords present on {ev.url}: {hits}; no explicit ship date found on page, "
-                "on-time/late not established"
-            )
-            ship_date_confirmed = False
-    elif n >= 1:
-        if today <= deadline:
-            status, reason = PromiseStatus.PENDING, (
-                f"only {n}/{total} keywords present and deadline {deadline.isoformat()} not yet reached"
-            )
-        else:
-            status, reason = PromiseStatus.PARTIALLY_FULFILLED, (
-                f"deadline {deadline.isoformat()} passed; partial evidence only ({n}/{total} keywords: {hits})"
-            )
-    else:
-        if today <= deadline:
-            status, reason = PromiseStatus.PENDING, (
-                f"deadline {deadline.isoformat()} not yet reached; no delivery evidence on {ev.url}"
-            )
-        elif today <= deadline + dt.timedelta(days=ABANDON_GRACE_DAYS):
-            status, reason = PromiseStatus.DELAYED, (
-                f"deadline {deadline.isoformat()} passed {(today - deadline).days}d ago; "
-                f"no delivery evidence on {ev.url} (0/{total} keywords)"
-            )
-        else:
-            status, reason = PromiseStatus.ABANDONED, (
-                f"deadline {deadline.isoformat()} passed {(today - deadline).days}d ago (> {ABANDON_GRACE_DAYS}d grace); "
-                f"still no delivery evidence on {ev.url}"
-            )
+            return _result(PromiseStatus.FULFILLED,
+                           f"{n}/{total} keywords present on {url}{seen}; page dates it "
+                           f"{earliest.isoformat()}, on or before deadline {deadline.isoformat()}",
+                           url=url, now_iso=now_iso, hits=hits, excerpt=excerpt,
+                           ship_date_confirmed=True, method=f"{method}+date", captured=captured_now)
+        if earliest and earliest > deadline:
+            return _result(PromiseStatus.FULFILLED_LATE,
+                           f"{n}/{total} keywords present{seen}; page dates it {earliest.isoformat()}, "
+                           f"{(earliest - deadline).days}d after deadline {deadline.isoformat()}",
+                           url=url, now_iso=now_iso, hits=hits, excerpt=excerpt,
+                           ship_date_confirmed=True, method=f"{method}+date", captured=captured_now)
+        return _result(PromiseStatus.FULFILLED,
+                       f"{n}/{total} keywords present on {url}{seen}: {hits}; delivery proven but no "
+                       "point-in-time capture or page date establishes timing",
+                       url=url, now_iso=now_iso, hits=hits, excerpt=excerpt,
+                       ship_date_confirmed=False, method=method, captured=captured_now)
 
-    return VerificationResult(
-        status=status,
-        reason=reason,
-        evidence_url=ev.url,
-        evidence_excerpt=excerpt,
-        keyword_hits=hits,
-        checked_at=now_iso,
-        ship_date_confirmed=ship_date_confirmed,
-    )
+    if n >= 1:
+        if today <= deadline:
+            return _result(PromiseStatus.PENDING,
+                           f"only {n}/{total} keywords present and deadline {deadline.isoformat()} "
+                           "not yet reached",
+                           url=url, now_iso=now_iso, hits=hits, excerpt=excerpt, method=method)
+        return _result(PromiseStatus.PARTIALLY_FULFILLED,
+                       f"deadline {deadline.isoformat()} passed; partial evidence only "
+                       f"({n}/{total} keywords: {hits})",
+                       url=url, now_iso=now_iso, hits=hits, excerpt=excerpt, method=method)
+
+    if today <= deadline:
+        return _result(PromiseStatus.PENDING,
+                       f"deadline {deadline.isoformat()} not yet reached; no delivery evidence on {url}",
+                       url=url, now_iso=now_iso, excerpt=excerpt, method=method)
+    if today <= deadline + dt.timedelta(days=ABANDON_GRACE_DAYS):
+        return _result(PromiseStatus.DELAYED,
+                       f"deadline {deadline.isoformat()} passed {(today - deadline).days}d ago; "
+                       f"no delivery evidence on {url} (0/{total} keywords)",
+                       url=url, now_iso=now_iso, excerpt=excerpt, method=method)
+    return _result(PromiseStatus.ABANDONED,
+                   f"deadline {deadline.isoformat()} passed {(today - deadline).days}d ago "
+                   f"(> {ABANDON_GRACE_DAYS}d grace); still no delivery evidence on {url}",
+                   url=url, now_iso=now_iso, excerpt=excerpt, method=method)

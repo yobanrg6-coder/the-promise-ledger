@@ -8,6 +8,7 @@ import datetime as dt
 from agents.promise_schemas import LedgerPromise, PromiseStatus
 from ledger import evidence as evidence_mod
 from ledger import verifier
+from ledger.archive import ArchiveSnapshot
 from ledger.verifier import _dates_near, _majority, verify_promise
 
 
@@ -15,6 +16,27 @@ def _fake_evidence(text: str, ok: bool = True, shell: bool = False, url: str = "
     def _fetch(u, timeout=25.0):
         return evidence_mod.Evidence(url=url, ok=ok, text=text, looks_like_spa_shell=shell)
     return _fetch
+
+
+def _fake_evidence_by_url(pages: dict[str, str], default: str = ""):
+    """Route fetch_evidence by URL: keys are matched as substrings of the
+    fetched URL, so an archive URL like 'web.archive.org/web/.../acme.com/docs'
+    can be keyed on 'web.archive.org'."""
+    def _fetch(u, timeout=25.0):
+        for frag, text in pages.items():
+            if frag in u:
+                return evidence_mod.Evidence(url=u, ok=bool(text), text=text,
+                                             looks_like_spa_shell=len(text) < 1)
+        return evidence_mod.Evidence(url=u, ok=bool(default), text=default,
+                                     looks_like_spa_shell=len(default) < 1)
+    return _fetch
+
+
+def _snap(captured: str, url: str = "http://web.archive.org/web/x/https://acme.com/docs"):
+    return lambda *a, **k: ArchiveSnapshot(
+        original_url="https://acme.com/docs", archive_url=url,
+        captured=dt.date.fromisoformat(captured),
+    )
 
 
 def _make_promise(**kwargs):
@@ -160,7 +182,7 @@ def test_verifier_defaults_to_fulfilled_when_truly_no_date(monkeypatch):
     p = _make_promise(deadline_date="2024-12-31")
     r = verify_promise(p, check_date=dt.date(2026, 8, 27))
     assert r.status == PromiseStatus.FULFILLED
-    assert "no explicit ship date found" in r.reason
+    assert "establishes timing" in r.reason  # neither an archive capture nor a page date
     # delivery proven but undated -> must be flagged so the scorecard keeps it
     # out of the on-time rate instead of counting it as on time.
     assert r.ship_date_confirmed is False
@@ -235,3 +257,76 @@ def test_verifier_reports_unverifiable_on_corrupted_date_instead_of_crashing(mon
 
     r2 = verify_promise(_make_promise(deadline_date="not-a-date"), check_date=dt.date(2026, 8, 27))
     assert r2.status == PromiseStatus.UNVERIFIABLE
+
+
+# =========================================================================== #
+# 5. Point-in-time verification via the Wayback Machine
+# =========================================================================== #
+def test_archive_capture_on_or_before_deadline_with_keywords_is_fulfilled_on_time(monkeypatch):
+    """The strong path: the official page, as archived on/before the deadline,
+    already carries the check keywords -> FULFILLED on time, and the capture
+    date is the dated proof (no prose-date parsing needed)."""
+    monkeypatch.setattr(verifier, "snapshot_near", _snap("2024-06-30"))
+    monkeypatch.setattr(verifier, "fetch_evidence", _fake_evidence_by_url(
+        {"web.archive.org": "Feature X is live in the Acme Dashboard.",
+         "acme.com/docs": "unrelated current content"}))
+
+    p = _make_promise(announced_date="2024-02-01", deadline_date="2024-06-30")
+    r = verify_promise(p, check_date=dt.date(2026, 8, 27))
+    assert r.status == PromiseStatus.FULFILLED
+    assert r.ship_date_confirmed is True
+    assert r.verification_method == "wayback@deadline"
+    assert r.evidence_captured_at == "2024-06-30"
+
+
+def test_archive_absent_at_deadline_but_present_now_is_fulfilled_late(monkeypatch):
+    """The archived page from on/before the deadline does NOT have the
+    keywords, but the live page does -> it shipped, but late."""
+    monkeypatch.setattr(verifier, "snapshot_near", _snap("2024-06-15"))
+    monkeypatch.setattr(verifier, "fetch_evidence", _fake_evidence_by_url(
+        {"web.archive.org": "Nothing has shipped yet. Coming soon.",
+         "acme.com/docs": "Feature X is now live in the Acme Dashboard."}))
+
+    p = _make_promise(announced_date="2024-02-01", deadline_date="2024-06-30")
+    r = verify_promise(p, check_date=dt.date(2026, 8, 27))
+    assert r.status == PromiseStatus.FULFILLED_LATE
+    assert r.ship_date_confirmed is True
+    assert "archive-gap" in r.verification_method
+
+
+def test_bot_blocked_live_page_is_verified_via_a_recent_archive_capture(monkeypatch):
+    """The live page 403s to non-browser clients; a recent Wayback capture
+    still lets the verifier resolve it instead of giving up as UNVERIFIABLE."""
+    calls = {"n": 0}
+
+    def snap(url, target, **k):
+        # no capture near the deadline, but one near 'today'
+        calls["n"] += 1
+        return None if calls["n"] == 1 else ArchiveSnapshot(
+            "https://acme.com/docs", "http://web.archive.org/web/2026/acme", dt.date(2026, 8, 1))
+
+    monkeypatch.setattr(verifier, "snapshot_near", snap)
+    monkeypatch.setattr(verifier, "fetch_evidence", _fake_evidence_by_url(
+        {"web.archive.org": "Feature X shipped in the Acme Dashboard.",
+         "acme.com/docs": ""}))  # live fetch returns empty/not-ok
+
+    p = _make_promise(announced_date="2024-01-15", deadline_date="2024-12-31")
+    r = verify_promise(p, check_date=dt.date(2026, 8, 27))
+    assert r.status == PromiseStatus.FULFILLED
+    assert r.verification_method == "wayback@now"
+
+
+def test_archive_snapshot_after_the_deadline_is_not_treated_as_on_time_proof(monkeypatch):
+    """snapshot_near returns the closest capture in either direction; one from
+    AFTER the deadline must not be used to claim on-time delivery."""
+    monkeypatch.setattr(verifier, "snapshot_near", _snap("2025-03-01"))  # long after deadline
+    monkeypatch.setattr(verifier, "fetch_evidence", _fake_evidence_by_url(
+        {"web.archive.org": "Feature X and Acme Dashboard are live.",
+         "acme.com/docs": "Feature X and Acme Dashboard are live now."}))
+
+    p = _make_promise(announced_date="2024-02-01", deadline_date="2024-06-30")
+    r = verify_promise(p, check_date=dt.date(2026, 8, 27))
+    # no usable point-in-time capture, no page date -> FULFILLED but undated
+    assert r.status == PromiseStatus.FULFILLED
+    assert r.ship_date_confirmed is False
+    assert r.verification_method == "live-page"

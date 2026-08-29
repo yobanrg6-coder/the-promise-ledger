@@ -247,6 +247,8 @@ def apply_verification(promise_id: str, result, backend: PromiseBackend | None =
         "evidence_excerpt": result.evidence_excerpt or "",
         "last_checked_at": result.checked_at or utcnow_iso(),
         "ship_date_confirmed": result.ship_date_confirmed,
+        "verification_method": getattr(result, "verification_method", "") or "",
+        "evidence_captured_at": getattr(result, "evidence_captured_at", "") or "",
     }
     if fields["status"] in {s.value for s in RESOLVED_STATUSES}:
         # resolved_at records when the promise FIRST reached a gradeable

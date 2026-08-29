@@ -1,4 +1,4 @@
-"""Shared test setup: never let a test touch the real data/ledger.json."""
+"""Shared test setup: never let a test touch the real ledger file or the network."""
 
 import pytest
 
@@ -15,3 +15,11 @@ def _isolate_ledger_backend(monkeypatch, tmp_path):
     promises.reset_default_backend()
     yield
     promises.reset_default_backend()
+
+
+@pytest.fixture(autouse=True)
+def _no_wayback(monkeypatch):
+    """The verifier consults the Wayback Machine for a point-in-time capture.
+    Default every test to "no snapshot" so the suite stays offline; tests that
+    exercise the archive path patch ledger.verifier.snapshot_near explicitly."""
+    monkeypatch.setattr("ledger.verifier.snapshot_near", lambda *a, **k: None)

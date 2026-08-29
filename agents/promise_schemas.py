@@ -118,10 +118,22 @@ class VerificationResult(BaseModel):
     ship_date_confirmed: bool | None = Field(
         default=None,
         description=(
-            "For a FULFILLED / FULFILLED_LATE outcome: True if a ship date was actually read off the "
-            "evidence page, False if the page proved delivery but carried no date (so on-time vs late "
-            "could not be established). None for every other status."
+            "For a FULFILLED / FULFILLED_LATE outcome: True if a ship date was actually established "
+            "(from a point-in-time archive capture, or a date read off the page), False if delivery "
+            "was proven but its timing could not be. None for every other status."
         ),
+    )
+    verification_method: str = Field(
+        default="",
+        description=(
+            "How the verdict was reached: 'wayback@deadline' (official page as archived on/before the "
+            "deadline), 'wayback@now' (recent archive capture), 'live-page' / 'live-page+date' (the "
+            "current official page), or 'unverifiable'."
+        ),
+    )
+    evidence_captured_at: str = Field(
+        default="",
+        description="YYYY-MM-DD the evidence was captured, when it came from a point-in-time archive.",
     )
 
 
@@ -147,6 +159,8 @@ class LedgerPromise(BaseModel):
     last_checked_at: str | None = None
     # True/False once a FULFILLED* verdict is reached (see VerificationResult); None while PENDING.
     ship_date_confirmed: bool | None = None
+    verification_method: str = ""
+    evidence_captured_at: str = ""
     # audit trail: independent second opinion on falsifiability (Gemini vs Gemma)
     extractor_model: str = ""
     auditor_agreed: bool | None = None

@@ -26,6 +26,14 @@ _TAG_RE = re.compile(r"(?s)<[^>]+>")
 # unclosed <script> (broken markup) still gets stripped to end-of-document
 # instead of leaking its JS source into evidence.text as fake "content".
 _DROP_RE = re.compile(r"(?is)<(script|style|noscript|template|svg)\b.*?(?:</\1>|\Z)")
+# The Wayback Machine injects a navigation toolbar into every archived page,
+# fenced by these comments. Its visible text ("377 captures  Nov DEC Jan  2023
+# 2024 2025 ...") carries calendar dates that would poison the ship-date read,
+# so strip the whole fenced block before anything else.
+_WAYBACK_TOOLBAR_RE = re.compile(
+    r"(?is)<!--\s*BEGIN WAYBACK TOOLBAR INSERT\s*-->.*?<!--\s*END WAYBACK TOOLBAR INSERT\s*-->"
+)
+_COMMENT_RE = re.compile(r"(?s)<!--.*?-->")
 _WS_RE = re.compile(r"\s+")
 
 # Below this many characters of extracted text, a 200 response is almost
@@ -57,7 +65,8 @@ def html_to_text(raw: str) -> str:
     against real text, not entity noise. Whitespace collapse comes last so a
     decoded &nbsp; (U+00A0) folds into a normal space.
     """
-    stripped = _TAG_RE.sub(" ", _DROP_RE.sub(" ", raw))
+    without_toolbar = _WAYBACK_TOOLBAR_RE.sub(" ", raw)
+    stripped = _TAG_RE.sub(" ", _COMMENT_RE.sub(" ", _DROP_RE.sub(" ", without_toolbar)))
     return _WS_RE.sub(" ", html.unescape(stripped)).strip()
 
 
