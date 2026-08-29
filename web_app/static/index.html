@@ -126,7 +126,11 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? "").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Only ever emit an http(s) URL into an href - blocks javascript:/data: and
+// anything else a pasted announcement could smuggle into the ledger.
+const safeUrl = u => /^https?:\/\//i.test(String(u ?? "").trim()) ? String(u).trim() : "";
 
 async function loadHealth(){
   try{
@@ -166,8 +170,8 @@ async function loadPromises(){
       <div class="q">“${esc(p.source_quote)}”</div>
       <div class="foot">
         <span>deadline ${esc(p.deadline_date)}</span>
-        ${p.source_url ? `<a href="${esc(p.source_url)}" target="_blank" rel="noopener">source</a>` : ''}
-        ${p.evidence_url ? `<a href="${esc(p.evidence_url)}" target="_blank" rel="noopener">evidence</a>` : ''}
+        ${safeUrl(p.source_url) ? `<a href="${esc(safeUrl(p.source_url))}" target="_blank" rel="noopener">source</a>` : ''}
+        ${safeUrl(p.evidence_url) ? `<a href="${esc(safeUrl(p.evidence_url))}" target="_blank" rel="noopener">evidence</a>` : ''}
       </div>
       ${p.status_reason ? `<div class="foot"><span>${esc(p.status_reason)}</span></div>` : ''}
     </div>`).join('') || `<span class="muted">No promises yet.</span>`;

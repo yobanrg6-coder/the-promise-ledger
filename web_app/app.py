@@ -115,6 +115,23 @@ class ExtractRequest(BaseModel):
             raise ValueError("announced_date must be YYYY-MM-DD")
         return v.strip()
 
+    @field_validator("source_url")
+    @classmethod
+    def _check_source_url(cls, v: str) -> str:
+        # This value is persisted verbatim on the promise and later rendered as
+        # a link. Only ever accept a clean http(s) URL (or nothing) so a pasted
+        # announcement can't smuggle a javascript:/data: URI - or an HTML
+        # attribute break-out (quotes, angle brackets, whitespace) - into the
+        # ledger.
+        v = (v or "").strip()
+        if not v:
+            return v
+        if not re.match(r"^https?://", v, re.IGNORECASE):
+            raise ValueError("source_url must be an http(s) URL")
+        if re.search(r"""["'<>`\s]""", v):
+            raise ValueError("source_url contains characters not allowed in a URL")
+        return v
+
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard():
