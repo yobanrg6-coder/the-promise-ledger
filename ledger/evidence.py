@@ -14,6 +14,7 @@ this module deliberately:
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass
 
@@ -47,6 +48,19 @@ class Evidence:
         return self.text[max(0, i - radius): i + radius].strip()
 
 
+def html_to_text(raw: str) -> str:
+    """Raw HTML -> visible text: drop executable/non-visible blocks, strip
+    tags, decode HTML entities, collapse whitespace.
+
+    Entities are decoded AFTER tags are gone, so a date written
+    "November&nbsp;4,&nbsp;2024" or a keyword containing "&"/"'" is matched
+    against real text, not entity noise. Whitespace collapse comes last so a
+    decoded &nbsp; (U+00A0) folds into a normal space.
+    """
+    stripped = _TAG_RE.sub(" ", _DROP_RE.sub(" ", raw))
+    return _WS_RE.sub(" ", html.unescape(stripped)).strip()
+
+
 def fetch_evidence(url: str, timeout: float = 25.0) -> Evidence:
     if not url:
         return Evidence(url=url, ok=False, error="no evidence url")
@@ -58,8 +72,7 @@ def fetch_evidence(url: str, timeout: float = 25.0) -> Evidence:
     if r.status_code != 200:
         return Evidence(url=str(r.url), ok=False, error=f"HTTP {r.status_code}")
 
-    html = _DROP_RE.sub(" ", r.text)
-    text = _WS_RE.sub(" ", _TAG_RE.sub(" ", html)).strip()
+    text = html_to_text(r.text)
     return Evidence(
         url=str(r.url),
         ok=True,

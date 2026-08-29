@@ -4,19 +4,14 @@ No network, no LLM calls.
 """
 
 from ledger.evidence import (
-    _DROP_RE,
     _SHELL_TEXT_THRESHOLD,
-    _TAG_RE,
-    _WS_RE,
     Evidence,
     fetch_evidence,
+    html_to_text,
     keyword_hits,
 )
 
-
-def _clean_html(html: str) -> str:
-    cleaned = _DROP_RE.sub(" ", html)
-    return _WS_RE.sub(" ", _TAG_RE.sub(" ", cleaned)).strip()
+_clean_html = html_to_text  # tests exercise the real production helper
 
 
 # =========================================================================== #
@@ -61,6 +56,29 @@ def test_unclosed_script_tag_does_not_leak_javascript_into_text():
     assert "window.__INTERNAL_FLAG_CLAUDE_HAIKU" not in text
     assert "vertex_ai_config" not in text
     assert keyword_hits(text, ["INTERNAL_FLAG", "vertex_ai"]) == []
+
+
+# =========================================================================== #
+# 2b. HTML entities must be decoded before keyword / date matching
+# =========================================================================== #
+def test_html_entities_are_decoded_so_a_nbsp_date_is_readable():
+    """A ship date written with &nbsp; separators must come out as a plain
+    "November 4, 2024" the verifier's date regex can read - not "November&nbsp;4"."""
+    page = "<p>Claude 3.5 Haiku shipped on November&nbsp;4,&nbsp;2024.</p>"
+    text = html_to_text(page)
+    assert "November 4, 2024" in text
+    assert "&nbsp;" not in text
+
+
+def test_html_entities_are_decoded_for_keyword_matching():
+    """A keyword containing '&' or an apostrophe must match its encoded form
+    on the page."""
+    page = "<li>Now available: AT&amp;T integration and the developer&#39;s console.</li>"
+    text = html_to_text(page)
+    assert keyword_hits(text, ["AT&T integration", "developer's console"]) == [
+        "AT&T integration",
+        "developer's console",
+    ]
 
 
 # =========================================================================== #
