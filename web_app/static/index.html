@@ -170,6 +170,7 @@ async function loadPromises(){
       <div class="q">“${esc(p.source_quote)}”</div>
       <div class="foot">
         <span>deadline ${esc(p.deadline_date)}</span>
+        ${p.verification_method ? `<span title="how this verdict was reached">via ${esc(p.verification_method)}${p.evidence_captured_at ? ' · ' + esc(p.evidence_captured_at) : ''}</span>` : ''}
         ${safeUrl(p.source_url) ? `<a href="${esc(safeUrl(p.source_url))}" target="_blank" rel="noopener">source</a>` : ''}
         ${safeUrl(p.evidence_url) ? `<a href="${esc(safeUrl(p.evidence_url))}" target="_blank" rel="noopener">evidence</a>` : ''}
       </div>
