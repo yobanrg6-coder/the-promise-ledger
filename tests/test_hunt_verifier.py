@@ -127,6 +127,16 @@ def test_dates_near_handles_iso_slash_dates():
     assert dt.date(2024, 10, 28) in _dates_near(text, "Feature X")
 
 
+def test_dates_near_handles_ordinal_day_suffixes():
+    """'4th November 2024' / 'November 4th, 2024' must parse the same as the
+    non-ordinal forms. Regression guard: the Anthropic seed's ship date is
+    only ever written with an ordinal on its evidence page, and without this
+    the verifier read that promise as on-time instead of FULFILLED_LATE."""
+    assert dt.date(2024, 11, 4) in _dates_near("Claude 3.5 Haiku 4th November 2024 ...", "Claude 3.5 Haiku")
+    assert dt.date(2025, 2, 25) in _dates_near("vision support was added on 25th February 2025.", "vision support")
+    assert dt.date(2024, 11, 4) in _dates_near("shipped November 4th, 2024 to everyone", "shipped")
+
+
 def test_verifier_reads_slash_date_as_late_when_after_deadline(monkeypatch):
     """
     A parseable ship date after the deadline must resolve to FULFILLED_LATE,

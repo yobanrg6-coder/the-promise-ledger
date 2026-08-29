@@ -47,6 +47,8 @@ call made after the fact.
 
 ## Architecture
 
+![The Promise Ledger architecture](docs/architecture.png)
+
 ```
 announcement text ──▶ PromiseExtractorAgent  (Gemini, ADK, structured output)   [1]
                         │

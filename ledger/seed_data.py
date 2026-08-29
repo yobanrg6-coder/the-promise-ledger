@@ -70,11 +70,13 @@ SEED_PROMISES: list[dict] = [
         "check_keywords": ["Claude 3.5 Haiku", "Haiku"],
         "deadline_raw": "later this month",
         "deadline_date_iso": "2024-10-31",
-        # Anthropic's own API changelog is a rolling window and the Nov-2024
-        # entry has since scrolled off it; Wikipedia's model page is stable
-        # and dated.
-        "evidence_url": "https://en.wikipedia.org/wiki/Claude_(language_model)",
-        "claimed_outcome": "FULFILLED_LATE - Claude 3.5 Haiku shipped 2024-11-04, a few days past 'this month'.",
+        # Anthropic's own API changelog is a rolling window; Wikipedia's model
+        # table only carries the ANNOUNCEMENT date (22 Oct 2024), which made the
+        # verifier read this as on-time. This page states the actual ship date
+        # ("4th November 2024") right next to the model name, so the zero-LLM
+        # verifier now dates it correctly as FULFILLED_LATE.
+        "evidence_url": "https://simonwillison.net/2024/Nov/4/haiku/",
+        "claimed_outcome": "FULFILLED_LATE - Claude 3.5 Haiku shipped 2024-11-04, 4 days past the end of 'this month' (deadline 2024-10-31).",
     },
     {
         "company": "Apple",
