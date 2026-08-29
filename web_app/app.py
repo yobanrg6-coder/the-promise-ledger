@@ -99,6 +99,10 @@ os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 MAX_ANNOUNCEMENT_CHARS = 16000
+# Hard ceiling on one live pipeline run. The auditor step has its own internal
+# timeout; this bounds the whole extract -> audit -> re-extract loop so a
+# stalled Gemini call can't leave the SSE stream hanging with no events.
+PIPELINE_TIMEOUT_SECONDS = 90
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -210,17 +214,33 @@ async def extract_stream(req: ExtractRequest, request: Request):
             logger.exception("orchestrator init failed")
             yield _sse({"type": "error", "message": "Could not initialize the pipeline. Check the Gemini API key."})
             return
+        agen = orch.process_announcement_stream(
+            announcement_text=text,
+            source_url=req.source_url,
+            announced_date=req.announced_date,
+        )
+        pipeline_deadline = time.monotonic() + PIPELINE_TIMEOUT_SECONDS
         try:
-            async for event in orch.process_announcement_stream(
-                announcement_text=text,
-                source_url=req.source_url,
-                announced_date=req.announced_date,
-            ):
+            while True:
+                remaining = pipeline_deadline - time.monotonic()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
+                try:
+                    event = await asyncio.wait_for(agen.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
                 yield _sse(event)
                 await asyncio.sleep(0.03)
+        except asyncio.TimeoutError:
+            logger.warning("pipeline exceeded %ss for source_url=%r", PIPELINE_TIMEOUT_SECONDS, req.source_url)
+            yield _sse({"type": "error",
+                        "message": f"The pipeline ran past {PIPELINE_TIMEOUT_SECONDS}s and was stopped. "
+                                   "Try a shorter, more concrete announcement."})
         except Exception:
             logger.exception("pipeline failed for source_url=%r", req.source_url)
             yield _sse({"type": "error", "message": "The pipeline failed during execution. See server logs."})
+        finally:
+            await agen.aclose()
 
     return StreamingResponse(
         event_generator(),

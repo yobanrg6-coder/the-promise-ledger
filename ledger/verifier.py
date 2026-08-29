@@ -132,7 +132,7 @@ def verify_promise(promise: LedgerPromise, check_date: dt.date | None = None) ->
     absent_by_deadline = ""
     snap = snapshot_near(url, deadline)
     if snap and snap.ok and announced <= snap.captured <= deadline:
-        ev_d = fetch_evidence(snap.archive_url)
+        ev_d = fetch_evidence(snap.archive_url, timeout=15.0)
         if ev_d.ok and not ev_d.looks_like_spa_shell:
             hits_d = keyword_hits(ev_d.text, keywords)
             if _majority(len(hits_d), total):
@@ -154,7 +154,7 @@ def verify_promise(promise: LedgerPromise, check_date: dt.date | None = None) ->
     if not ev.ok or ev.looks_like_spa_shell:
         snap_now = snapshot_near(url, today)
         if snap_now and snap_now.ok:
-            ev = fetch_evidence(snap_now.archive_url)
+            ev = fetch_evidence(snap_now.archive_url, timeout=15.0)
             method, captured_now = "wayback@now", snap_now.captured.isoformat()
 
     if not ev.ok or ev.looks_like_spa_shell:

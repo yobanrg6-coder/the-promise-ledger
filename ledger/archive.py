@@ -46,7 +46,7 @@ def _parse_ts(ts: str) -> dt.date | None:
         return None
 
 
-def snapshot_near(url: str, target: dt.date, timeout: float = 20.0) -> ArchiveSnapshot | None:
+def snapshot_near(url: str, target: dt.date, timeout: float = 12.0) -> ArchiveSnapshot | None:
     """The archived capture of `url` closest to `target` (either direction).
     Returns None if the archive has nothing for this URL, or on a fetch error.
     The caller decides whether `captured` is close enough to trust.

@@ -6,13 +6,11 @@ strict Pydantic output schema; the deterministic falsifiability gate
 """
 
 import os
-import sys
 
 from google.adk.agents import LlmAgent
 from google.adk.models import Gemini
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from promise_schemas import PromiseExtraction
+from agents.promise_schemas import PromiseExtraction
 
 SYSTEM_INSTRUCTION = """You extract FALSIFIABLE product promises from company announcements for a public
 accountability ledger. The ledger only holds promises that can later be checked TRUE or FALSE against a

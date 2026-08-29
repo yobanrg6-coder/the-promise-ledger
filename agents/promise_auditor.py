@@ -11,13 +11,11 @@ integrity claim.
 """
 
 import os
-import sys
 
 from google.adk.agents import LlmAgent
 from google.adk.models import Gemini
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from promise_schemas import PromiseAudit
+from agents.promise_schemas import PromiseAudit
 
 DEFAULT_GEMMA_MODEL = "gemma-4-26b-a4b-it"
 

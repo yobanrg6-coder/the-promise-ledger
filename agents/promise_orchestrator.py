@@ -26,7 +26,8 @@ from typing import Any, TypeVar
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Keep the project root importable when the orchestrator is loaded from a
+# context that hasn't already put it on sys.path.
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from google.adk.runners import InMemoryRunner
