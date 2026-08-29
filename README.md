@@ -27,12 +27,17 @@ that fetches the official page and checks it.
    re-extractions.
 3. **Gate** it with pure Python — a real deadline, not absurd, ≥2 distinct
    specific keywords, a substantive outcome. The gate admits, not the model.
-4. **Verify** it at the deadline with **zero LLM** — fetch the evidence page,
-   match keywords as whole tokens, read a ship date if one is on the page, and
-   apply a fixed decision table.
-5. **Score** it — a per-company and overall scorecard: kept on time / late /
-   delayed / abandoned / unverifiable, and an on-time rate that is a count, not
-   a claim.
+4. **Verify** it with **zero LLM**, point-in-time. Two probes: the official
+   page **as archived by the Wayback Machine on or before the deadline** (if
+   the check keywords are in that capture, the promise was kept on time and
+   the capture date is the dated proof — no prose-date guessing, no third
+   party but a neutral public archive), then the page **now** (which, combined
+   with probe 1, gives late vs delayed vs abandoned). A fixed decision table
+   turns the two readings into one status, and every verdict records how it
+   was reached (`wayback@deadline`, `live-page`, …).
+5. **Score** it — a per-company and overall scorecard: kept on time / undated /
+   late / delayed / abandoned / unverifiable, and an on-time rate that is a
+   count, not a claim.
 
 ### The seven statuses
 
@@ -65,8 +70,9 @@ ledger  ◀──▶  FastMCP server        get_scorecard · list_promises · ge
                                     admit_promise · run_verification_cycle
    │
    ▼
-run_cycle  (scheduled, zero LLM)   re-fetch every due promise's evidence page,
-                                   re-decide its status, persist the change
+run_cycle  (scheduled, zero LLM)   for each due promise: the official page as
+                                   archived on/before the deadline (Wayback),
+                                   then the page now → fixed decision table
 ```
 
 Steps 1–3 stream live in the web app (`/api/extract-stream`). The verification
@@ -78,8 +84,9 @@ cycle and every MCP tool are LLM-free.
 | `agents/promise_auditor.py` | `google.adk` `LlmAgent`, Gemma — a genuinely different model family |
 | `agents/promise_orchestrator.py` | the extract → audit → re-extract → gate → admit pipeline, as an async event stream |
 | `agents/falsifiability_gate.py` | deterministic admission check, no LLM |
-| `ledger/evidence.py` | HTTP fetch + HTML→text + whole-token keyword match, no JS |
-| `ledger/verifier.py` | the zero-LLM status decision table |
+| `ledger/evidence.py` | HTTP fetch + HTML→text (+ Wayback toolbar strip, entity decode) + whole-token keyword match, no JS |
+| `ledger/archive.py` | Wayback Machine lookup — the official page as captured near a given date |
+| `ledger/verifier.py` | the zero-LLM, two-probe (archived-at-deadline / now) decision table |
 | `ledger/promises.py` | store + scorecard; backend = JSON file / Firestore / in-memory |
 | `mcp_server/server.py` | FastMCP server exposing the ledger over the Model Context Protocol |
 | `web_app/` | FastAPI + a single static page: scorecard + live pipeline stream |
@@ -159,32 +166,33 @@ directly, so the public demo is fully functional without it.
 
 ## Honest limitations
 
+- **The archive doesn't always have a capture near the deadline.** When there
+  is no Wayback snapshot on/before the deadline, the verifier falls back to
+  reading a date off the *current* page — a weaker signal, biased toward
+  `FULFILLED` over `FULFILLED_LATE` because it takes the earliest date near the
+  first keyword. In the seed, `xAI` (no 2024 capture of `x.ai/news/grok-os`)
+  and `Anthropic` verify this way; their `verification_method` says
+  `live-page+date`, so the record shows which verdicts rest on the weaker path.
+- **One seed row still leans on a third-party page.** `Anthropic`'s
+  `evidence_url` is a dated write-up (`simonwillison.net/.../haiku/`) rather
+  than Anthropic's own changelog, which no longer carries the 2024 Haiku
+  release and has no useful pre-deadline capture. Choosing that URL is the one
+  piece of human curation the pipeline can't remove; it's flagged in
+  `ledger/seed_data.py`, and the verdict (`FULFILLED_LATE`) is still the
+  zero-LLM rule's.
 - **Keyword brittleness.** If a page describes a shipped feature in words that
   don't contain the check keywords, the verifier under-reports it. The seed set
-  shows this (`Stability AI` resolves `FULFILLED` but the page has no date, so
-  "on-time vs late" can't be established).
-- **Evidence decay, and the fallback.** Vendor changelogs are rolling windows;
-  a 2024 entry can scroll off by 2026. The verifier is designed to run *near*
-  the deadline. When a fact has already scrolled off the official page, the
-  `evidence_url` for that seed entry points at a stable, dated public record
-  instead — the `Anthropic` row checks a dated write-up
-  (`simonwillison.net/.../haiku/`) rather than Anthropic's own changelog,
-  which no longer lists the 2024 Haiku release. That choice is the one piece
-  of human curation the pipeline can't remove; it is visible in
-  `ledger/seed_data.py` with a comment, and the verdict it produces
-  (`FULFILLED_LATE`) is still decided by the same zero-LLM rule.
-- **Date attribution is a heuristic.** The verifier reads the earliest date
-  near the first keyword hit. On a page that shows both an announcement date
-  and a later ship date next to the model name it can pick the earlier one,
-  biasing toward `FULFILLED` over `FULFILLED_LATE`. Pointing `evidence_url` at
-  a page where the ship date is the one next to the feature name is, again,
-  curation.
-- **Bot blocks.** Some official pages (`help.openai.com`) return HTTP 403 to
-  non-browser clients — that promise resolves `UNVERIFIABLE`, honestly.
+  shows this: `Stability AI` resolves `FULFILLED` but neither its page nor any
+  capture pins a date, so it stays `FULFILLED (undated)` — kept out of the
+  on-time rate rather than assumed on time.
+- **`UNVERIFIABLE` still fires** when the live page is unreachable *and* the
+  archive has nothing usable (or the stored record has a broken date). The
+  seed happens not to hit that today — `OpenAI`'s bot-blocked download page
+  resolves via its 2024-12-28 archived capture — but the status is live in the
+  decision table.
 - The seed is 8 curated promises across 6 companies — enough to show the
-  mechanism, not a census. One resolves to `FULFILLED (undated)` and one to
-  `UNVERIFIABLE`, so the on-time rate is computed over just six datable
-  promises; treat the headline percentage as illustrative.
+  mechanism, not a census. Four verify point-in-time against the company's own
+  official page; one is undated. Treat the headline percentage as illustrative.
 
 ---
 

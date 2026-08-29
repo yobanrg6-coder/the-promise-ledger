@@ -104,13 +104,13 @@
     <div>
       <h1>The <span class="accent">Promise</span> Ledger &mdash; Architecture</h1>
       <p class="lede">A machine-verifiable record of public product promises. Two LLMs (different
-      families) only <i>propose</i> structure; a deterministic gate admits, and a
-      <b>zero-LLM</b> verifier decides every outcome against the official page.</p>
+      families) only <i>propose</i> structure; a deterministic gate admits, and a <b>zero-LLM</b>
+      verifier decides every outcome against the official page <i>as archived on the deadline</i>.</p>
     </div>
     <div class="meta">
       Google Cloud &ldquo;All Things Agentic&rdquo; Hackathon<br>
       <span class="strong">Category: The Taskmaster</span><br>
-      ADK &middot; Gemini 3.5 &middot; Gemma &middot; MCP &middot; Cloud Run
+      ADK &middot; Gemini 3.5 &middot; Gemma &middot; MCP &middot; Wayback &middot; Cloud Run
     </div>
   </header>
 
@@ -196,11 +196,12 @@
     <div class="row">
       <div class="card green">
         <div class="kicker">run_cycle &mdash; scheduled, no API key, safe unattended</div>
-        <h3>Zero-LLM verifier</h3>
-        <p>For every promise past its deadline: fetch the official evidence page (raw HTTP, no JS),
-        strip to text, match keywords as whole tokens, read a ship date if the page carries one,
-        apply a fixed public decision table. <b>&ldquo;It shipped&rdquo; is never an inferred claim.</b></p>
-        <div class="path">ledger/run_cycle.py &nbsp;&middot;&nbsp; ledger/verifier.py &nbsp;&middot;&nbsp; ledger/evidence.py</div>
+        <h3>Zero-LLM verifier &mdash; point-in-time</h3>
+        <p>Probe 1: the official page <b>as archived by the Wayback Machine on/before the deadline</b>
+        &mdash; keywords in that capture = kept on time, the capture date is the dated proof.
+        Probe 2: the page now. A fixed table turns the two readings into one status; every verdict
+        records how it was reached. <b>&ldquo;It shipped&rdquo; is never an inferred claim.</b></p>
+        <div class="path">ledger/verifier.py &nbsp;&middot;&nbsp; ledger/archive.py &nbsp;&middot;&nbsp; ledger/evidence.py</div>
       </div>
       <div class="arrow">&nbsp;</div>
       <div class="card statuses">
@@ -215,9 +216,9 @@
           <span class="s dim">UNVERIFIABLE</span>
         </div>
         <p class="seed">Seeded demo: <b>8 real promises / 6 companies</b> (Meta, Anthropic, Apple,
-        xAI, Stability AI, OpenAI), verified live against their own pages. Failures kept visible:
-        1 ABANDONED, 1 FULFILLED_LATE, 1 UNVERIFIABLE (HTTP 403), 1 undated FULFILLED
-        (no date on page &rarr; out of the on-time rate).</p>
+        xAI, Stability AI, OpenAI). <b>4 verify point-in-time against the company's own official
+        page</b> via the archive (incl. OpenAI's bot-blocked download page). Outcomes kept visible:
+        1 ABANDONED, 1 FULFILLED_LATE, 1 undated FULFILLED. Seed on-time rate 71.4%.</p>
       </div>
     </div>
   </div>
