@@ -4,7 +4,6 @@ No network, no LLM calls.
 """
 
 import datetime as dt
-import pytest
 
 from agents.promise_schemas import LedgerPromise, PromiseStatus
 from ledger import evidence as evidence_mod
@@ -19,19 +18,19 @@ def _fake_evidence(text: str, ok: bool = True, shell: bool = False, url: str = "
 
 
 def _make_promise(**kwargs):
-    defaults = dict(
-        id="test-p1",
-        company="Acme Corp",
-        promise_text="Acme launches Feature X",
-        source_quote="We will launch Feature X by Q4 2024.",
-        source_url="https://acme.com/news",
-        announced_date="2024-01-15",
-        deadline_raw="end of Q4 2024",
-        deadline_date="2024-12-31",
-        observable_outcome="Feature X is available in Acme dashboard",
-        check_keywords=["Feature X", "Acme Dashboard"],
-        evidence_url="https://acme.com/docs",
-    )
+    defaults = {
+        "id": "test-p1",
+        "company": "Acme Corp",
+        "promise_text": "Acme launches Feature X",
+        "source_quote": "We will launch Feature X by Q4 2024.",
+        "source_url": "https://acme.com/news",
+        "announced_date": "2024-01-15",
+        "deadline_raw": "end of Q4 2024",
+        "deadline_date": "2024-12-31",
+        "observable_outcome": "Feature X is available in Acme dashboard",
+        "check_keywords": ["Feature X", "Acme Dashboard"],
+        "evidence_url": "https://acme.com/docs",
+    }
     defaults.update(kwargs)
     return LedgerPromise(**defaults)
 
@@ -162,6 +161,18 @@ def test_verifier_defaults_to_fulfilled_when_truly_no_date(monkeypatch):
     r = verify_promise(p, check_date=dt.date(2026, 8, 27))
     assert r.status == PromiseStatus.FULFILLED
     assert "no explicit ship date found" in r.reason
+    # delivery proven but undated -> must be flagged so the scorecard keeps it
+    # out of the on-time rate instead of counting it as on time.
+    assert r.ship_date_confirmed is False
+
+
+def test_verifier_marks_ship_date_confirmed_when_dated(monkeypatch):
+    page = "Feature X and Acme Dashboard shipped on October 28, 2024."
+    monkeypatch.setattr(verifier, "fetch_evidence", _fake_evidence(page))
+    p = _make_promise(deadline_date="2024-12-31")
+    r = verify_promise(p, check_date=dt.date(2026, 8, 27))
+    assert r.status == PromiseStatus.FULFILLED
+    assert r.ship_date_confirmed is True
 
 
 # =========================================================================== #
@@ -210,14 +221,17 @@ def test_verifier_partial_evidence_on_deadline_vs_after(monkeypatch):
     assert r_after.status == PromiseStatus.PARTIALLY_FULFILLED
 
 
-def test_verifier_unhandled_exception_on_corrupted_announced_date(monkeypatch):
+def test_verifier_reports_unverifiable_on_corrupted_date_instead_of_crashing(monkeypatch):
     """
-    If a promise in the database has a malformed announced_date and matches keywords with dates,
-    verify_promise crashes with ValueError when parsing dt.date.fromisoformat(promise.announced_date).
+    A malformed date on the stored record is a data problem, not a delivery
+    signal: verify_promise must return UNVERIFIABLE, not raise out of the cycle.
     """
     page = "Feature X and Acme Dashboard launched on October 28, 2024."
     monkeypatch.setattr(verifier, "fetch_evidence", _fake_evidence(page))
-    p = _make_promise(announced_date="invalid-date")
-    
-    with pytest.raises(ValueError, match="Invalid isoformat string"):
-        verify_promise(p, check_date=dt.date(2026, 8, 27))
+
+    r = verify_promise(_make_promise(announced_date="invalid-date"), check_date=dt.date(2026, 8, 27))
+    assert r.status == PromiseStatus.UNVERIFIABLE
+    assert "unparseable date" in r.reason
+
+    r2 = verify_promise(_make_promise(deadline_date="not-a-date"), check_date=dt.date(2026, 8, 27))
+    assert r2.status == PromiseStatus.UNVERIFIABLE

@@ -7,9 +7,11 @@ this file - "we said X shipped and it did" must never be an inferred claim.
 Decision table (deadline D, check date T):
   fetch failed / SPA shell .................... UNVERIFIABLE
   majority of check_keywords present:
-      a dated ship signal <= D on the page .... FULFILLED
-      a dated ship signal >  D ................ FULFILLED_LATE
-      no dateable ship signal ................. FULFILLED       (reason notes date not established)
+      a dated ship signal <= D on the page .... FULFILLED       (ship_date_confirmed=True)
+      a dated ship signal >  D ................ FULFILLED_LATE   (ship_date_confirmed=True)
+      no dateable ship signal ................. FULFILLED        (ship_date_confirmed=False; the
+                                                                 scorecard keeps these out of the
+                                                                 on-time rate, neither on time nor late)
   some (>=1) but not a majority present:
       T <= D ................................. PENDING
       T >  D ................................. PARTIALLY_FULFILLED
@@ -86,7 +88,19 @@ def _dates_near(text: str, anchor: str, radius: int = 400) -> list[dt.date]:
 def verify_promise(promise: LedgerPromise, check_date: dt.date | None = None) -> VerificationResult:
     today = check_date or dt.datetime.now(dt.timezone.utc).date()
     now_iso = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-    deadline = dt.date.fromisoformat(promise.deadline_date)
+
+    # A malformed date on the stored record is a data problem, not a delivery
+    # signal - report it as UNVERIFIABLE instead of raising out of the cycle.
+    try:
+        deadline = dt.date.fromisoformat(promise.deadline_date)
+        announced = dt.date.fromisoformat(promise.announced_date)
+    except (ValueError, TypeError) as exc:
+        return VerificationResult(
+            status=PromiseStatus.UNVERIFIABLE,
+            reason=f"promise record has an unparseable date ({exc})",
+            evidence_url=promise.evidence_url,
+            checked_at=now_iso,
+        )
 
     ev = fetch_evidence(promise.evidence_url)
     if not ev.ok or ev.looks_like_spa_shell:
@@ -101,24 +115,28 @@ def verify_promise(promise: LedgerPromise, check_date: dt.date | None = None) ->
     hits = keyword_hits(ev.text, promise.check_keywords)
     n, total = len(hits), len(promise.check_keywords)
     excerpt = ev.excerpt_around(hits[0]) if hits else ev.text[:300]
+    ship_date_confirmed: bool | None = None
 
     if _majority(n, total):
-        ship_dates = [d for d in _dates_near(ev.text, hits[0]) if d >= dt.date.fromisoformat(promise.announced_date)]
+        ship_dates = [d for d in _dates_near(ev.text, hits[0]) if d >= announced]
         earliest = min(ship_dates) if ship_dates else None
         if earliest and earliest <= deadline:
             status, reason = PromiseStatus.FULFILLED, (
                 f"{n}/{total} keywords present on {ev.url}; dated {earliest.isoformat()}, on or before deadline {deadline.isoformat()}"
             )
+            ship_date_confirmed = True
         elif earliest and earliest > deadline:
             status, reason = PromiseStatus.FULFILLED_LATE, (
                 f"{n}/{total} keywords present; shipped {earliest.isoformat()}, "
                 f"{(earliest - deadline).days}d after deadline {deadline.isoformat()}"
             )
+            ship_date_confirmed = True
         else:
             status, reason = PromiseStatus.FULFILLED, (
                 f"{n}/{total} keywords present on {ev.url}: {hits}; no explicit ship date found on page, "
                 "on-time/late not established"
             )
+            ship_date_confirmed = False
     elif n >= 1:
         if today <= deadline:
             status, reason = PromiseStatus.PENDING, (
@@ -151,4 +169,5 @@ def verify_promise(promise: LedgerPromise, check_date: dt.date | None = None) ->
         evidence_excerpt=excerpt,
         keyword_hits=hits,
         checked_at=now_iso,
+        ship_date_confirmed=ship_date_confirmed,
     )

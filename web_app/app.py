@@ -59,6 +59,12 @@ RATE_LIMIT_MAX_REQUESTS = 8
 RATE_LIMIT_WINDOW_SECONDS = 60
 _request_log: dict[str, deque] = defaultdict(deque)
 
+# The re-verify endpoint spends no Gemini quota but fetches every evidence page
+# (currently 8 external requests) per call, so it gets a tighter, separate bound.
+VERIFY_LIMIT_MAX_REQUESTS = 3
+VERIFY_LIMIT_WINDOW_SECONDS = 300
+_verify_log: dict[str, deque] = defaultdict(deque)
+
 
 def _resolve_client_ip(request: Request) -> str:
     # Behind Cloud Run's front end, request.client.host is Google's internal
@@ -71,15 +77,19 @@ def _resolve_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _check_rate_limit(client_ip: str) -> None:
+def _rate_limit(log_store: dict[str, deque], client_ip: str, max_requests: int, window_s: int) -> None:
     now = time.monotonic()
-    log = _request_log[client_ip]
-    while log and now - log[0] > RATE_LIMIT_WINDOW_SECONDS:
+    # Evict fully-aged-out IPs so the map can't grow without bound on a
+    # long-lived instance.
+    for ip in [ip for ip, dq in log_store.items() if dq and now - dq[-1] > window_s]:
+        del log_store[ip]
+    log = log_store[client_ip]
+    while log and now - log[0] > window_s:
         log.popleft()
-    if len(log) >= RATE_LIMIT_MAX_REQUESTS:
+    if len(log) >= max_requests:
         raise HTTPException(
             status_code=429,
-            detail=f"Rate limit exceeded: max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS}s.",
+            detail=f"Rate limit exceeded: max {max_requests} requests per {window_s}s.",
         )
     log.append(now)
 
@@ -137,10 +147,33 @@ async def api_promises():
     return {"promises": rows, "count": len(rows)}
 
 
+@app.post("/api/verify-cycle")
+async def api_verify_cycle(request: Request):
+    """Re-run the zero-LLM verifier over every promise against its live evidence
+    page and return the fresh scorecard. No LLM, no API key - this is the same
+    deterministic check the scheduled cycle runs."""
+    _rate_limit(_verify_log, _resolve_client_ip(request),
+                VERIFY_LIMIT_MAX_REQUESTS, VERIFY_LIMIT_WINDOW_SECONDS)
+    from ledger.run_cycle import reverify_all
+
+    try:
+        summary = await asyncio.to_thread(reverify_all)
+    except Exception:
+        logger.exception("verify-cycle failed")
+        raise HTTPException(status_code=500, detail="Re-verification failed. See server logs.") from None
+    return {
+        "checked": summary["checked"],
+        "changed": summary["changed"],
+        "errors": summary["errors"],
+        "scorecard": summary["scorecard"],
+    }
+
+
 @app.post("/api/extract-stream")
 async def extract_stream(req: ExtractRequest, request: Request):
     """SSE: stream the real pipeline stages for a pasted announcement."""
-    _check_rate_limit(_resolve_client_ip(request))
+    _rate_limit(_request_log, _resolve_client_ip(request),
+                RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW_SECONDS)
     resolved_key = req.api_key or os.getenv("GEMINI_API_KEY")
 
     async def event_generator():

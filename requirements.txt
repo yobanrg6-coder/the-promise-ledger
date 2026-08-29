@@ -1,16 +1,15 @@
-# The Promise Ledger - Dependencies
-google-genai>=1.0.0
-google-adk>=1.13.0
-fastmcp>=2.11.0
-fastapi>=0.115.0
-uvicorn>=0.34.0
-pydantic>=2.10.0
-python-dotenv>=1.0.1
-httpx>=0.28.1
-aiofiles>=24.1.0
-jinja2>=3.1.5
-rich>=13.9.0
-requests>=2.32.0
-defusedxml>=0.7.1
-google-cloud-firestore>=2.19.0
-pytrends>=4.9.2
+# The Promise Ledger - runtime dependencies.
+# Pinned to exact versions: the hackathon judging window runs for a month, and
+# a breaking release of ADK / fastmcp / google-genai mid-window must not change
+# what a fresh `pip install` produces.
+google-genai==2.18.1
+google-adk==2.7.0
+fastmcp==3.4.7
+fastapi==0.141.1
+uvicorn==0.52.3
+pydantic==2.13.4
+python-dotenv==1.2.2
+httpx==0.28.1
+aiofiles==25.1.0
+# Only imported when LEDGER_BACKEND=firestore (the default is a local JSON file).
+google-cloud-firestore==2.28.1

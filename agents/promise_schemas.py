@@ -115,6 +115,14 @@ class VerificationResult(BaseModel):
     evidence_excerpt: str = Field(default="", description="Snippet of the fetched page around the match, for the receipt")
     keyword_hits: list[str] = Field(default_factory=list)
     checked_at: str = Field(default="", description="UTC ISO timestamp of this check")
+    ship_date_confirmed: bool | None = Field(
+        default=None,
+        description=(
+            "For a FULFILLED / FULFILLED_LATE outcome: True if a ship date was actually read off the "
+            "evidence page, False if the page proved delivery but carried no date (so on-time vs late "
+            "could not be established). None for every other status."
+        ),
+    )
 
 
 class LedgerPromise(BaseModel):
@@ -137,6 +145,8 @@ class LedgerPromise(BaseModel):
     created_at: str = ""
     resolved_at: str | None = None
     last_checked_at: str | None = None
+    # True/False once a FULFILLED* verdict is reached (see VerificationResult); None while PENDING.
+    ship_date_confirmed: bool | None = None
     # audit trail: independent second opinion on falsifiability (Gemini vs Gemma)
     extractor_model: str = ""
     auditor_agreed: bool | None = None

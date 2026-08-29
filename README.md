@@ -88,12 +88,15 @@ cycle and every MCP tool are LLM-free.
 
 ## Quick start
 
+Python 3.11+.
+
 ```bash
 git clone https://github.com/yobanrg6-coder/the-promise-ledger.git
 cd the-promise-ledger
-python -m venv venv && source venv/Scripts/activate   # or venv\Scripts\activate on cmd
+python -m venv venv
+source venv/bin/activate            # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env          # add GEMINI_API_KEY for the live extraction demo
+cp .env.example .env                # add GEMINI_API_KEY for the live extraction demo
 ```
 
 **Seed the ledger** with the curated demo promises (hand-typed real
@@ -124,7 +127,7 @@ python -m ledger.run_cycle
 
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/            # 61 tests, no network, no LLM
+pytest tests/            # no network, no LLM
 ```
 
 ---
@@ -145,6 +148,12 @@ gcloud run deploy the-promise-ledger --source . --region=us-central1 \
 `data/ledger.json` ships in the image as the baseline scorecard. Cloud Run's
 disk is ephemeral, so live writes during a session don't survive a cold start —
 set `LEDGER_BACKEND=firestore` for durable writes.
+
+Cloud Run exposes one port (the web app). The FastMCP server also runs in the
+container but on an internal port — connect an MCP client to it by running the
+stack locally (`python run.py`, then point the client at
+`http://127.0.0.1:8080/mcp`). The web app talks to the same ledger module
+directly, so the public demo is fully functional without it.
 
 ---
 

@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from agents.promise_schemas import (
-    KEPT_ON_TIME_STATUSES,
     RESOLVED_STATUSES,
     LedgerPromise,
     PromiseStatus,
@@ -232,6 +231,7 @@ def apply_verification(promise_id: str, result, backend: PromiseBackend | None =
         "evidence_url": result.evidence_url or "",
         "evidence_excerpt": result.evidence_excerpt or "",
         "last_checked_at": result.checked_at or utcnow_iso(),
+        "ship_date_confirmed": result.ship_date_confirmed,
     }
     if fields["status"] in {s.value for s in RESOLVED_STATUSES}:
         # resolved_at records when the promise FIRST reached a gradeable
@@ -289,49 +289,56 @@ def due_for_check(check_date: dt.date | None = None, backend: PromiseBackend | N
 def get_scorecard(backend: PromiseBackend | None = None) -> dict[str, Any]:
     docs = _backend(backend).all()
     resolved_vals = {s.value for s in RESOLVED_STATUSES}
-    kept_on_time = {s.value for s in KEPT_ON_TIME_STATUSES}
-    kept_any = kept_on_time | {PromiseStatus.FULFILLED_LATE.value, PromiseStatus.PARTIALLY_FULFILLED.value}
+    fulfilled = PromiseStatus.FULFILLED.value
+
+    def _zero() -> dict[str, int]:
+        return {"resolved": 0, "kept_on_time": 0, "kept_undated": 0, "kept_late_or_partial": 0,
+                "delayed": 0, "abandoned": 0, "pending": 0, "unverifiable": 0}
 
     by_company: dict[str, dict[str, int]] = {}
-    overall = {"total": len(docs), "resolved": 0, "kept_on_time": 0, "kept_late_or_partial": 0,
-               "delayed": 0, "abandoned": 0, "pending": 0, "unverifiable": 0}
+    overall = _zero()
+    overall["total"] = len(docs)
 
     for d in docs:
         s = d.get("status", PromiseStatus.PENDING.value)
         c = d.get("company") or "(unknown)"
-        cc = by_company.setdefault(c, {"resolved": 0, "kept_on_time": 0, "kept_late_or_partial": 0,
-                                       "delayed": 0, "abandoned": 0, "pending": 0, "unverifiable": 0})
+        cc = by_company.setdefault(c, _zero())
         if s in resolved_vals:
             overall["resolved"] += 1
             cc["resolved"] += 1
-        if s in kept_on_time:
-            overall["kept_on_time"] += 1
-            cc["kept_on_time"] += 1
-        elif s in kept_any:
-            overall["kept_late_or_partial"] += 1
-            cc["kept_late_or_partial"] += 1
+
+        if s == fulfilled and d.get("ship_date_confirmed") is False:
+            # delivery proven, but the page carried no date - timeliness is
+            # genuinely unknown, so it counts as neither on time nor late.
+            bucket = "kept_undated"
+        elif s == fulfilled:
+            bucket = "kept_on_time"
+        elif s in (PromiseStatus.FULFILLED_LATE.value, PromiseStatus.PARTIALLY_FULFILLED.value):
+            bucket = "kept_late_or_partial"
         elif s == PromiseStatus.DELAYED.value:
-            overall["delayed"] += 1
-            cc["delayed"] += 1
+            bucket = "delayed"
         elif s == PromiseStatus.ABANDONED.value:
-            overall["abandoned"] += 1
-            cc["abandoned"] += 1
-        elif s == PromiseStatus.PENDING.value:
-            overall["pending"] += 1
-            cc["pending"] += 1
+            bucket = "abandoned"
         elif s == PromiseStatus.UNVERIFIABLE.value:
-            overall["unverifiable"] += 1
-            cc["unverifiable"] += 1
+            bucket = "unverifiable"
+        else:
+            bucket = "pending"
+        overall[bucket] += 1
+        cc[bucket] += 1
 
-    def _rate(kept: int, resolved: int) -> float | None:
-        return round(100 * kept / resolved, 1) if resolved else None
+    def _rate(kept_on_time: int, resolved: int, undated: int) -> float | None:
+        # Denominator excludes the undated fulfillments: the rate is "of the
+        # resolved promises whose timeliness could be established, the share
+        # that were on time".
+        datable = resolved - undated
+        return round(100 * kept_on_time / datable, 1) if datable else None
 
-    overall["on_time_rate_pct"] = _rate(overall["kept_on_time"], overall["resolved"])
+    overall["on_time_rate_pct"] = _rate(overall["kept_on_time"], overall["resolved"], overall["kept_undated"])
     companies = []
     for c, cc in sorted(by_company.items()):
         cc = dict(cc)
         cc["company"] = c
-        cc["on_time_rate_pct"] = _rate(cc["kept_on_time"], cc["resolved"])
+        cc["on_time_rate_pct"] = _rate(cc["kept_on_time"], cc["resolved"], cc["kept_undated"])
         companies.append(cc)
 
     return {"overall": overall, "companies": companies}

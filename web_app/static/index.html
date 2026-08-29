@@ -23,6 +23,12 @@
   main{display:grid;grid-template-columns:1.15fr .85fr;gap:24px;padding:24px 26px;max-width:1400px;margin:0 auto}
   @media(max-width:960px){main{grid-template-columns:1fr}}
   h2{font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--ink-dim);margin:0 0 12px;font-weight:600}
+  .sec-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+  .sec-head h2{margin:0}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:600;font-size:12px;padding:7px 12px}
+  button.ghost:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  .note{font-size:12px;color:var(--ink-dim);margin-top:10px;font-family:var(--mono)}
+  .footnote{font-size:11px;color:var(--ink-dim);margin-top:12px;line-height:1.5}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:20px}
   .kpis{display:flex;gap:14px;flex-wrap:wrap}
   .kpi{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:14px 16px;flex:1;min-width:110px}
@@ -71,9 +77,16 @@
 
 <main>
   <div>
-    <h2>Accountability scorecard</h2>
+    <div class="sec-head">
+      <h2>Accountability scorecard</h2>
+      <button id="reverifyBtn" class="ghost">Re-verify all vs. live pages</button>
+    </div>
     <div class="panel">
       <div class="kpis" id="kpis"><span class="muted">loading…</span></div>
+      <div id="verifyNote" class="note" hidden></div>
+      <div class="footnote">On-time rate = kept on time &divide; resolved promises whose ship date could be
+      established. <b>Fulfilled&nbsp;(undated)</b> promises &mdash; delivery proven, but the page carried no
+      date &mdash; are excluded from the rate rather than assumed on time.</div>
     </div>
     <div class="panel">
       <h2>By company</h2>
@@ -81,8 +94,8 @@
         <table id="companyTable">
           <thead><tr>
             <th>Company</th><th class="num">Resolved</th><th class="num">On&nbsp;time</th>
-            <th class="num">Late/partial</th><th class="num">Delayed</th><th class="num">Abandoned</th>
-            <th class="num">Pending</th><th class="num">On-time&nbsp;%</th>
+            <th class="num">Undated</th><th class="num">Late/partial</th><th class="num">Delayed</th>
+            <th class="num">Abandoned</th><th class="num">Pending</th><th class="num">On-time&nbsp;%</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -129,16 +142,16 @@ async function loadScorecard(){
   const o = c.overall;
   $('#kpis').innerHTML =
     kpi(o.total,'Tracked') + kpi(o.resolved,'Resolved') +
-    kpi(o.kept_on_time,'Kept on time') + kpi(o.kept_late_or_partial,'Late / partial') +
-    kpi(o.delayed + o.abandoned,'Broken') +
+    kpi(o.kept_on_time,'Kept on time') + kpi(o.kept_undated,'Fulfilled, undated') +
+    kpi(o.kept_late_or_partial,'Late / partial') + kpi(o.delayed + o.abandoned,'Broken') +
     kpi(o.on_time_rate_pct==null ? '—' : o.on_time_rate_pct + '%','On-time rate');
   const tb = $('#companyTable tbody');
   tb.innerHTML = c.companies.map(x => `<tr>
     <td>${esc(x.company)}</td><td class="num">${x.resolved}</td><td class="num">${x.kept_on_time}</td>
-    <td class="num">${x.kept_late_or_partial}</td><td class="num">${x.delayed}</td>
+    <td class="num">${x.kept_undated}</td><td class="num">${x.kept_late_or_partial}</td><td class="num">${x.delayed}</td>
     <td class="num">${x.abandoned}</td><td class="num">${x.pending}</td>
     <td class="num">${x.on_time_rate_pct==null ? '—' : x.on_time_rate_pct + '%'}</td>
-  </tr>`).join('') || `<tr><td colspan="8" class="muted">No promises yet — run <code>python -m ledger.seed</code>.</td></tr>`;
+  </tr>`).join('') || `<tr><td colspan="9" class="muted">No promises yet — run <code>python -m ledger.seed</code>.</td></tr>`;
 }
 
 async function loadPromises(){
@@ -195,6 +208,23 @@ $('#runBtn').addEventListener('click', async () => {
     }
   }catch(e){ addEv('client error — ' + esc(e.message), 'err'); }
   btn.disabled = false;
+});
+
+$('#reverifyBtn').addEventListener('click', async () => {
+  const b = $('#reverifyBtn'); const note = $('#verifyNote');
+  b.disabled = true; note.hidden = false;
+  note.textContent = 'Re-fetching every evidence page and re-deciding each status (zero-LLM)…';
+  try{
+    const r = await fetch('/api/verify-cycle', {method:'POST'});
+    if(!r.ok){ note.textContent = 'Re-verify failed: HTTP ' + r.status + ' — ' + esc(await r.text()); b.disabled = false; return; }
+    const d = await r.json();
+    const chg = (d.changed && d.changed.length)
+      ? d.changed.map(x => `${esc(x.company)} ${x.from}→${x.to}`).join(', ')
+      : 'no status changes';
+    note.textContent = `Re-verified ${d.checked} promise(s) — ${chg}. ${d.errors} error(s).`;
+    await loadScorecard(); await loadPromises();
+  }catch(e){ note.textContent = 'Re-verify error — ' + esc(e.message); }
+  b.disabled = false;
 });
 
 loadHealth(); loadScorecard(); loadPromises();

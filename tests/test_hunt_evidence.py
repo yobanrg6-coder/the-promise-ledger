@@ -3,8 +3,6 @@ Adversarial tests for ledger.evidence - hunting text extraction, SPA thresholds,
 No network, no LLM calls.
 """
 
-import re
-import pytest
 from ledger.evidence import (
     _DROP_RE,
     _SHELL_TEXT_THRESHOLD,

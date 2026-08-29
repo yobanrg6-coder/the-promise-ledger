@@ -1,4 +1,4 @@
-# Multi-Stage Dockerfile for Google Cloud Run deployment
+# Dockerfile for Google Cloud Run deployment.
 FROM python:3.12-slim
 
 # Set environment variables
@@ -11,10 +11,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system dependencies
+# build-essential covers any dependency without a prebuilt wheel for slim.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies

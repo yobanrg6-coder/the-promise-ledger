@@ -10,7 +10,7 @@ from agents.promise_schemas import PromiseStatus
 from ledger import evidence as evidence_mod
 from ledger import promises, verifier
 from ledger.promises import JsonFileBackend
-from ledger.run_cycle import run_cycle
+from ledger.run_cycle import reverify_all, run_cycle
 from ledger.seed import _extraction_from_seed, seed
 from ledger.seed_data import SEED_PROMISES
 
@@ -84,3 +84,17 @@ def test_seed_runs_end_to_end_with_fake_evidence(monkeypatch, tmp_path):
     assert out["admitted"] == len(SEED_PROMISES)
     card = out["scorecard"]["overall"]
     assert card["total"] == len(SEED_PROMISES)
+
+
+def test_reverify_all_rechecks_every_promise_even_when_none_are_due(monkeypatch, tmp_path):
+    """reverify_all re-runs the zero-LLM verifier over the WHOLE ledger; run_cycle
+    only touches promises still in a trackable state. After seeding with an empty
+    page every promise resolves ABANDONED, so run_cycle has nothing to do but
+    reverify_all still re-checks all of them."""
+    be = JsonFileBackend(tmp_path / "ledger.json")
+    monkeypatch.setattr(verifier, "fetch_evidence", _fake_evidence("nothing relevant on this page"))
+    seed(fresh=True, verify=True, backend=be)
+    check = dt.date(2026, 8, 28)
+
+    assert run_cycle(check_date=check, backend=be)["checked"] == 0
+    assert reverify_all(check_date=check, backend=be)["checked"] == len(SEED_PROMISES)

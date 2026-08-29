@@ -5,10 +5,11 @@ Uses mocked agent runners (no Gemini API calls).
 
 import asyncio
 from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from agents.promise_orchestrator import AgentExecutionError, PromiseLedgerOrchestrator
-from agents.promise_schemas import GateResult, PromiseAudit, PromiseExtraction
+from agents.promise_schemas import PromiseAudit, PromiseExtraction
 from ledger.promises import InMemoryBackend
 
 

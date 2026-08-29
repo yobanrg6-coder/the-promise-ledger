@@ -3,8 +3,6 @@ No network, no LLM (evidence fetch is monkeypatched)."""
 
 import datetime as dt
 
-import pytest
-
 from agents.falsifiability_gate import run_gate
 from agents.promise_schemas import PromiseExtraction, PromiseStatus
 from ledger import evidence as evidence_mod
@@ -15,18 +13,18 @@ ANNOUNCED = "2024-10-22"
 
 
 def _ext(**kw):
-    base = dict(
-        is_falsifiable=True,
-        company="Anthropic",
-        promise_text="Claude 3.5 Haiku will be released later this month",
-        source_quote="The new Claude 3.5 Haiku will be released later this month.",
-        observable_outcome="Claude 3.5 Haiku is available via the Anthropic API and Bedrock",
-        check_keywords=["claude-3-5-haiku", "Claude 3.5 Haiku", "Amazon Bedrock"],
-        deadline_raw="later this month",
-        deadline_date_iso="2024-10-31",
-        evidence_url_hint="https://docs.claude.com/",
-        rejection_reason="",
-    )
+    base = {
+        "is_falsifiable": True,
+        "company": "Anthropic",
+        "promise_text": "Claude 3.5 Haiku will be released later this month",
+        "source_quote": "The new Claude 3.5 Haiku will be released later this month.",
+        "observable_outcome": "Claude 3.5 Haiku is available via the Anthropic API and Bedrock",
+        "check_keywords": ["claude-3-5-haiku", "Claude 3.5 Haiku", "Amazon Bedrock"],
+        "deadline_raw": "later this month",
+        "deadline_date_iso": "2024-10-31",
+        "evidence_url_hint": "https://docs.claude.com/",
+        "rejection_reason": "",
+    }
     base.update(kw)
     return PromiseExtraction(**base)
 
@@ -61,13 +59,13 @@ def _fake_evidence(text, ok=True, shell=False):
 
 
 def _promise(**kw):
-    d = dict(
-        id="p1", company="Anthropic",
-        promise_text="x", source_quote="x", source_url="https://a.co",
-        announced_date=ANNOUNCED, deadline_raw="later this month", deadline_date="2024-10-31",
-        observable_outcome="x", check_keywords=["claude-3-5-haiku", "Claude 3.5 Haiku", "Amazon Bedrock"],
-        evidence_url="https://docs.claude.com/models",
-    )
+    d = {
+        "id": "p1", "company": "Anthropic",
+        "promise_text": "x", "source_quote": "x", "source_url": "https://a.co",
+        "announced_date": ANNOUNCED, "deadline_raw": "later this month", "deadline_date": "2024-10-31",
+        "observable_outcome": "x", "check_keywords": ["claude-3-5-haiku", "Claude 3.5 Haiku", "Amazon Bedrock"],
+        "evidence_url": "https://docs.claude.com/models",
+    }
     d.update(kw)
     from agents.promise_schemas import LedgerPromise
     return LedgerPromise(**d)

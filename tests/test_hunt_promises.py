@@ -5,12 +5,10 @@ No network, no LLM calls.
 
 import datetime as dt
 import time
-import pytest
 
 from agents.promise_schemas import LedgerPromise, PromiseStatus, VerificationResult
 from ledger import promises
 from ledger.promises import InMemoryBackend
-from ledger.verifier import verify_promise
 
 
 # =========================================================================== #
@@ -175,6 +173,36 @@ def test_scorecard_covers_all_seven_statuses_correctly():
     assert ov["pending"] == 1
     assert ov["unverifiable"] == 1
     assert ov["on_time_rate_pct"] == 20.0  # 1 on time / 5 resolved = 20.0%
+
+
+def test_scorecard_excludes_undated_fulfillments_from_on_time_rate():
+    """A FULFILLED promise whose ship date could not be read (ship_date_confirmed
+    False) lands in kept_undated and is removed from BOTH sides of the on-time
+    rate - it is neither counted on time nor allowed to drag the rate down."""
+    be = InMemoryBackend()
+    specs = [
+        ("dated-ontime", PromiseStatus.FULFILLED, True),
+        ("dated-ontime-2", PromiseStatus.FULFILLED, True),
+        ("undated", PromiseStatus.FULFILLED, False),
+        ("late", PromiseStatus.FULFILLED_LATE, True),
+    ]
+    for name, st, confirmed in specs:
+        pid = promises.admit_promise(
+            company="Co", promise_text=name, source_quote="q", source_url="https://e.co",
+            announced_date="2024-01-01", deadline_raw="Q1", deadline_date="2024-03-31",
+            observable_outcome="a b c", check_keywords=["k one", "k two"], backend=be,
+        )
+        promises.apply_verification(
+            pid, VerificationResult(status=st, reason=name, ship_date_confirmed=confirmed), backend=be
+        )
+
+    ov = promises.get_scorecard(backend=be)["overall"]
+    assert ov["resolved"] == 4
+    assert ov["kept_on_time"] == 2
+    assert ov["kept_undated"] == 1
+    assert ov["kept_late_or_partial"] == 1
+    # denominator = resolved - undated = 3; on time = 2  ->  66.7%
+    assert ov["on_time_rate_pct"] == 66.7
 
 
 # =========================================================================== #

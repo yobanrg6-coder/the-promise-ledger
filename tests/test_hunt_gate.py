@@ -3,24 +3,23 @@ Adversarial tests for agents.falsifiability_gate - hunting edge cases and bugs.
 No network, no LLM calls.
 """
 
-import pytest
 from agents.falsifiability_gate import _usable_keywords, run_gate
 from agents.promise_schemas import PromiseExtraction
 
 
 def _ext(**kw):
-    base = dict(
-        is_falsifiable=True,
-        company="Acme Corp",
-        promise_text="Acme launches Feature X",
-        source_quote="We will launch Feature X by Q4 2024.",
-        observable_outcome="Feature X is available in Acme dashboard",
-        check_keywords=["Feature X", "Acme Dashboard"],
-        deadline_raw="end of Q4 2024",
-        deadline_date_iso="2024-12-31",
-        evidence_url_hint="https://acme.com/docs",
-        rejection_reason="",
-    )
+    base = {
+        "is_falsifiable": True,
+        "company": "Acme Corp",
+        "promise_text": "Acme launches Feature X",
+        "source_quote": "We will launch Feature X by Q4 2024.",
+        "observable_outcome": "Feature X is available in Acme dashboard",
+        "check_keywords": ["Feature X", "Acme Dashboard"],
+        "deadline_raw": "end of Q4 2024",
+        "deadline_date_iso": "2024-12-31",
+        "evidence_url_hint": "https://acme.com/docs",
+        "rejection_reason": "",
+    }
     base.update(kw)
     return PromiseExtraction(**base)
 
