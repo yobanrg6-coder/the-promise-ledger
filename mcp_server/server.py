@@ -22,6 +22,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
+from agents.falsifiability_gate import run_gate
+from agents.promise_schemas import PromiseExtraction
 from ledger import promises as ledger
 from ledger.run_cycle import run_cycle
 
@@ -33,9 +35,10 @@ mcp = FastMCP("The Promise Ledger")
 @mcp.tool()
 def get_scorecard() -> dict:
     """The accountability scorecard: per-company and overall counts of kept /
-    late / delayed / abandoned / pending / unverifiable promises, plus an
-    on-time rate (kept-on-time / resolved). Computed from the ledger, never
-    estimated."""
+    kept-undated / late / delayed / abandoned / pending / unverifiable
+    promises, plus an on-time rate = kept-on-time divided by the resolved
+    promises whose ship date could be established (undated fulfillments are
+    excluded from both sides). Computed from the ledger, never estimated."""
     return ledger.get_scorecard()
 
 
@@ -67,21 +70,42 @@ def admit_promise(
     evidence_url: str = "",
     deadline_raw: str = "",
 ) -> dict:
-    """Add a promise to the ledger. Dates are YYYY-MM-DD. The ledger stores it
-    as PENDING until a verification cycle resolves it."""
-    pid = ledger.admit_promise(
+    """Add a promise to the ledger. Dates are YYYY-MM-DD. The promise must pass
+    the same deterministic falsifiability gate the web pipeline uses (real
+    calendar deadline, not absurd, >=2 specific check keywords, a substantive
+    observable outcome); if it doesn't, nothing is written and the gate's
+    reason is returned. On success the ledger stores it as PENDING until a
+    verification cycle resolves it."""
+    extraction = PromiseExtraction(
+        is_falsifiable=True,
         company=company,
         promise_text=promise_text,
         source_quote=source_quote,
-        source_url=source_url,
-        announced_date=announced_date,
-        deadline_raw=deadline_raw or deadline_date,
-        deadline_date=deadline_date,
         observable_outcome=observable_outcome,
         check_keywords=check_keywords,
-        evidence_url=evidence_url,
-        extractor_model="(mcp admit_promise)",
+        deadline_raw=deadline_raw or deadline_date,
+        deadline_date_iso=deadline_date,
     )
+    gate = run_gate(extraction, announced_date)
+    if not gate.accepted:
+        return {"error": "rejected by the falsifiability gate", "gate_reason": gate.reason}
+
+    try:
+        pid = ledger.admit_promise(
+            company=company,
+            promise_text=promise_text,
+            source_quote=source_quote,
+            source_url=source_url,
+            announced_date=announced_date,
+            deadline_raw=deadline_raw or deadline_date,
+            deadline_date=deadline_date,
+            observable_outcome=observable_outcome,
+            check_keywords=check_keywords,
+            evidence_url=evidence_url,
+            extractor_model="(mcp admit_promise)",
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
     return {"promise_id": pid, "status": "PENDING"}
 
 
