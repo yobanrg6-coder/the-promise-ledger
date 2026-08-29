@@ -37,7 +37,7 @@ from ledger import promises as ledger
 
 load_dotenv()
 
-app = FastAPI(title="The Promise Ledger", version="2.0.0")
+app = FastAPI(title="The Promise Ledger", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
