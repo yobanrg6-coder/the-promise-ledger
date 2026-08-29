@@ -1,10 +1,9 @@
 """
 PromiseAuditorAgent - adversarial critic on an extracted promise, before it
-reaches the deterministic gate. Same "adversarial by default" stance as the
-original virality auditor: assume the extraction is too loose until it proves
-otherwise. If it rejects, it must hand back ONE exact re-extraction
-instruction so the self-correction loop produces a genuinely different,
-crisper promise (not a rephrase).
+reaches the deterministic gate. Adversarial by default: assume the extraction
+is too loose until it proves otherwise. If it rejects, it must hand back ONE
+exact re-extraction instruction so the self-correction loop produces a
+genuinely different, crisper promise (not a rephrase).
 
 Runs on a different model family (Gemma) when available - an independent
 second read on "is this actually falsifiable", which is the ledger's whole
