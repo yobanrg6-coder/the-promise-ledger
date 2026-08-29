@@ -203,6 +203,19 @@ def admit_promise(
             f"admit_promise needs >=2 specific check_keywords, got {vetted_keywords or 'none usable'}"
         )
 
+    # Idempotent on (company, deadline, verbatim quote): re-running the same
+    # announcement through the demo pipeline must not pile duplicate rows onto
+    # the shared public scorecard.
+    be = _backend(backend)
+    key = (company.strip().lower(), deadline_date.strip(), source_quote.strip())
+    for existing in be.all():
+        if (
+            existing.get("company", "").strip().lower(),
+            existing.get("deadline_date", "").strip(),
+            existing.get("source_quote", "").strip(),
+        ) == key:
+            return existing["id"]
+
     promise = LedgerPromise(
         id=str(uuid.uuid4()),
         company=company,
@@ -220,7 +233,7 @@ def admit_promise(
         extractor_model=extractor_model,
         auditor_agreed=auditor_agreed,
     )
-    _backend(backend).insert(promise.model_dump(mode="json"))
+    be.insert(promise.model_dump(mode="json"))
     return promise.id
 
 

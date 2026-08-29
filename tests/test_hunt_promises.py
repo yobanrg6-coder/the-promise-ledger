@@ -49,6 +49,29 @@ def test_admit_promise_rejects_when_fewer_than_two_usable_keywords():
         )
 
 
+def test_admit_promise_is_idempotent_on_company_deadline_and_quote():
+    """Re-running the same announcement through the demo pipeline must not add
+    a duplicate row to the shared public scorecard."""
+    be = InMemoryBackend()
+    kw = {
+        "company": "Acme", "promise_text": "ship X",
+        "source_quote": "We will ship X by Q2 2024.",
+        "source_url": "https://example.com", "announced_date": "2024-01-01",
+        "deadline_raw": "Q2 2024", "deadline_date": "2024-06-30",
+        "observable_outcome": "Feature X on the dashboard",
+        "check_keywords": ["Feature X", "Acme Console"], "backend": be,
+    }
+    first = promises.admit_promise(**kw)
+    second = promises.admit_promise(**{**kw, "promise_text": "reworded", "check_keywords": ["Feature X", "Acme Console", "v2 API"]})
+    assert first == second
+    assert len(be.all()) == 1
+
+    # a genuinely different deadline is a different promise
+    third = promises.admit_promise(**{**kw, "deadline_date": "2024-12-31"})
+    assert third != first
+    assert len(be.all()) == 2
+
+
 # =========================================================================== #
 # 1. apply_verification overwrites resolved_at bug
 # =========================================================================== #
@@ -119,7 +142,7 @@ def test_scorecard_all_pending():
         promises.admit_promise(
             company="Acme",
             promise_text=f"Promise {i}",
-            source_quote="Quote",
+            source_quote=f"Verbatim quote {i}",
             source_url="https://example.com",
             announced_date="2026-01-01",
             deadline_raw="2027-01-01",
@@ -188,7 +211,7 @@ def test_scorecard_covers_all_seven_statuses_correctly():
         pid = promises.admit_promise(
             company="MultiStatusCo",
             promise_text=f"Promise {st.value}",
-            source_quote="Quote",
+            source_quote=f"Verbatim quote for {st.value}",
             source_url="https://example.com",
             announced_date="2024-01-01",
             deadline_raw="2024-06-30",
@@ -226,7 +249,7 @@ def test_scorecard_excludes_undated_fulfillments_from_on_time_rate():
     ]
     for name, st, confirmed in specs:
         pid = promises.admit_promise(
-            company="Co", promise_text=name, source_quote="q", source_url="https://e.co",
+            company="Co", promise_text=name, source_quote=f"verbatim {name}", source_url="https://e.co",
             announced_date="2024-01-01", deadline_raw="Q1", deadline_date="2024-03-31",
             observable_outcome="a b c", check_keywords=["k one", "k two"], backend=be,
         )
