@@ -54,11 +54,14 @@ SEED_PROMISES: list[dict] = [
         "source_quote": "This week, @xAI will open source Grok.",
         "promise_text": "xAI will open-source its Grok model in the week of Mar 11, 2024.",
         "observable_outcome": "Grok-1 model weights are published under an open licence in a public repo.",
-        "check_keywords": ["Grok-1", "open-weights", "314B", "Apache 2.0"],
+        "check_keywords": ["Grok-1", "314B", "Apache 2.0", "Mixture-of-Experts"],
         "deadline_raw": "this week",
         "deadline_date_iso": "2024-03-18",
-        "evidence_url": "https://github.com/xai-org/grok-1",
-        "claimed_outcome": "FULFILLED - Grok-1 open weights released 2024-03-17.",
+        # xAI's own release post - carries the ship date ("Mar 17, 2024") right
+        # next to "Grok-1", so the zero-LLM verifier dates this FULFILLED
+        # on-time instead of leaving it undated (the GitHub repo page has no date).
+        "evidence_url": "https://x.ai/news/grok-os",
+        "claimed_outcome": "FULFILLED - Grok-1 open weights released 2024-03-17, one day before the 'this week' deadline (2024-03-18).",
     },
     {
         "company": "Anthropic",

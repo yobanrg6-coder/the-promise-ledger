@@ -182,8 +182,8 @@ directly, so the public demo is fully functional without it.
 - **Bot blocks.** Some official pages (`help.openai.com`) return HTTP 403 to
   non-browser clients — that promise resolves `UNVERIFIABLE`, honestly.
 - The seed is 8 curated promises across 6 companies — enough to show the
-  mechanism, not a census. Two resolve to `FULFILLED (undated)` and one to
-  `UNVERIFIABLE`, so the on-time rate is computed over just five datable
+  mechanism, not a census. One resolves to `FULFILLED (undated)` and one to
+  `UNVERIFIABLE`, so the on-time rate is computed over just six datable
   promises; treat the headline percentage as illustrative.
 
 ---
