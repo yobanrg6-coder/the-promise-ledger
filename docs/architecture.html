@@ -195,7 +195,7 @@
     <div class="band-label">Verification loop</div>
     <div class="row">
       <div class="card green">
-        <div class="kicker">run_cycle &mdash; scheduled, no API key, safe unattended</div>
+        <div class="kicker">run_cycle &mdash; Cloud Run Job on Cloud Scheduler, every 6h, no API key</div>
         <h3>Zero-LLM verifier &mdash; point-in-time</h3>
         <p>Probe 1: the official page <b>as archived by the Wayback Machine on/before the deadline</b>
         &mdash; keywords in that capture = kept on time, the capture date is the dated proof.
@@ -215,10 +215,11 @@
           <span class="s bad">ABANDONED</span>
           <span class="s dim">UNVERIFIABLE</span>
         </div>
-        <p class="seed">Seeded demo: <b>8 real promises / 6 companies</b> (Meta, Anthropic, Apple,
-        xAI, Stability AI, OpenAI). <b>4 verify point-in-time against the company's own official
-        page</b> via the archive (incl. OpenAI's bot-blocked download page). Outcomes kept visible:
-        1 ABANDONED, 1 FULFILLED_LATE, 1 undated FULFILLED. Seed on-time rate 71.4%.</p>
+        <p class="seed">Seeded demo: <b>14 real promises / 7 companies</b> (Anthropic, Apple, Google,
+        Meta, OpenAI, Stability AI, xAI). <b>Several verify point-in-time against an official page as
+        archived on/before the deadline</b> &mdash; the capture date is the dated proof. Outcomes kept
+        visible: 2 ABANDONED, 1 FULFILLED_LATE, 3 undated FULFILLED. On-time rate ~70%, re-run every
+        6h by the Cloud Run Job so it moves as pages and archives change.</p>
       </div>
     </div>
   </div>

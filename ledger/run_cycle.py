@@ -7,7 +7,11 @@ state (used by the web app's "re-verify now" action). Both re-fetch the
 evidence page and re-decide the status with the zero-LLM verifier
 (ledger/verifier.py). No API key, no Gemini call - safe to run unattended.
 
-Usage: python -m ledger.run_cycle
+Usage:
+  python -m ledger.run_cycle          # re-check only promises still due
+  python -m ledger.run_cycle --all    # re-check every promise (self-healing:
+                                      # a transient network blip that left a
+                                      # promise UNVERIFIABLE gets another pass)
 """
 
 from __future__ import annotations
@@ -74,4 +78,9 @@ def reverify_all(check_date: dt.date | None = None, backend=None) -> dict:
 
 
 if __name__ == "__main__":
-    run_cycle()
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Zero-LLM re-verification pass.")
+    ap.add_argument("--all", action="store_true",
+                    help="re-check every promise, not just the ones still due")
+    (reverify_all if ap.parse_args().all else run_cycle)()

@@ -51,6 +51,9 @@ def seed(*, fresh: bool = False, verify: bool = True, backend=None) -> dict:
         if backend is None:
             ledger.reset_default_backend()
             be = ledger.get_backend()
+    elif fresh and hasattr(be, "clear"):
+        removed = be.clear()
+        print(f"wiped {removed} existing promise(s) from {type(be).__name__}")
 
     existing = be.all()
     if existing and not fresh:

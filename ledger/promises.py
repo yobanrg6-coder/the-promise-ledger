@@ -72,6 +72,25 @@ class FirestoreBackend:
     def by_status(self, status: str) -> list[dict[str, Any]]:
         return [d.to_dict() for d in self._col.where("status", "==", status).stream()]
 
+    def clear(self) -> int:
+        """Delete every promise document. Used by `python -m ledger.seed --fresh`
+        so a re-seed replaces the ledger instead of stacking a second copy on
+        top of it. Batched deletes, 400 at a time (Firestore's write-batch cap)."""
+        n = 0
+        batch = self._client.batch()
+        pending = 0
+        for snap in self._col.stream():
+            batch.delete(snap.reference)
+            n += 1
+            pending += 1
+            if pending == 400:
+                batch.commit()
+                batch = self._client.batch()
+                pending = 0
+        if pending:
+            batch.commit()
+        return n
+
 
 class InMemoryBackend:
     def __init__(self) -> None:

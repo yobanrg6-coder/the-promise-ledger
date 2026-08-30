@@ -70,9 +70,9 @@ ledger  ◀──▶  FastMCP server        get_scorecard · list_promises · ge
                                     admit_promise · run_verification_cycle
    │
    ▼
-run_cycle  (scheduled, zero LLM)   for each due promise: the official page as
-                                   archived on/before the deadline (Wayback),
-                                   then the page now → fixed decision table
+run_cycle  (Cloud Run Job on       for each promise: the official page as
+Cloud Scheduler, every 6h,         archived on/before the deadline (Wayback),
+zero LLM)                          then the page now → fixed decision table
 ```
 
 Steps 1–3 stream live in the web app (`/api/extract-stream`). The verification
@@ -123,11 +123,13 @@ python run.py           # FastMCP server + web app
 # open http://127.0.0.1:8000
 ```
 
-**Run a verification cycle** (re-checks every due promise against its live
-evidence page, zero LLM):
+**Run a verification cycle** (re-checks promises against their live evidence
+page, zero LLM):
 
 ```bash
-python -m ledger.run_cycle
+python -m ledger.run_cycle          # only promises still due
+python -m ledger.run_cycle --all    # every promise (this is what the
+                                    # scheduled Cloud Run Job runs)
 ```
 
 **Tests:**
@@ -148,13 +150,22 @@ echo -n "your_gemini_api_key" | gcloud secrets create gemini-api-key --data-file
 
 gcloud run deploy the-promise-ledger --source . --region=us-central1 \
     --allow-unauthenticated --min-instances=1 --max-instances=1 \
-    --set-env-vars MODEL=gemini-3.5-flash-lite,LEDGER_BACKEND=json \
+    --set-env-vars MODEL=gemini-3.5-flash-lite,LEDGER_BACKEND=firestore \
     --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 
-`data/ledger.json` ships in the image as the baseline scorecard. Cloud Run's
-disk is ephemeral, so live writes during a session don't survive a cold start —
-set `LEDGER_BACKEND=firestore` for durable writes.
+`data/ledger.json` ships in the image as a zero-config baseline
+(`LEDGER_BACKEND=json`). The live deployment runs `LEDGER_BACKEND=firestore` so
+writes survive Cloud Run's ephemeral disk, and a **Cloud Run Job** re-runs the
+zero-LLM cycle on a schedule against that same store:
+
+```bash
+gcloud run jobs deploy ledger-cycle --image <same image> --region=us-central1 \
+    --command python --args=-m,ledger.run_cycle,--all \
+    --set-env-vars LEDGER_BACKEND=firestore
+gcloud scheduler jobs create http ledger-cycle-scheduler --schedule "0 */6 * * *" \
+    --uri ".../jobs/ledger-cycle:run" --http-method POST --oauth-service-account-email <sa>
+```
 
 Cloud Run exposes one port (the web app). The FastMCP server also runs in the
 container but on an internal port — connect an MCP client to it by running the
@@ -170,29 +181,31 @@ directly, so the public demo is fully functional without it.
   is no Wayback snapshot on/before the deadline, the verifier falls back to
   reading a date off the *current* page — a weaker signal, biased toward
   `FULFILLED` over `FULFILLED_LATE` because it takes the earliest date near the
-  first keyword. In the seed, `xAI` (no 2024 capture of `x.ai/news/grok-os`)
-  and `Anthropic` verify this way; their `verification_method` says
-  `live-page+date`, so the record shows which verdicts rest on the weaker path.
-- **One seed row still leans on a third-party page.** `Anthropic`'s
-  `evidence_url` is a dated write-up (`simonwillison.net/.../haiku/`) rather
-  than Anthropic's own changelog, which no longer carries the 2024 Haiku
-  release and has no useful pre-deadline capture. Choosing that URL is the one
-  piece of human curation the pipeline can't remove; it's flagged in
-  `ledger/seed_data.py`, and the verdict (`FULFILLED_LATE`) is still the
-  zero-LLM rule's.
+  first keyword. Several seed rows verify this way; their `verification_method`
+  says `live-page+date`, so the record shows which verdicts rest on the weaker
+  path.
+- **A few seed rows point at Wikipedia, not the vendor page.** `xAI` (Grok-2),
+  `Apple` (ChatGPT-in-iOS) and `Google` (Gemini Advanced) vendor pages render
+  as an empty JS shell to a non-browser client, so their `evidence_url` is the
+  relevant Wikipedia article — neutral, dated, archived. `Anthropic`'s Claude
+  3.5 Haiku row leans on a dated third-party write-up
+  (`simonwillison.net/.../haiku/`) because Anthropic's own changelog rolled
+  over. Each such choice is flagged with a comment in `ledger/seed_data.py`,
+  and every verdict is still the zero-LLM rule's.
 - **Keyword brittleness.** If a page describes a shipped feature in words that
   don't contain the check keywords, the verifier under-reports it. The seed set
   shows this: `Stability AI` resolves `FULFILLED` but neither its page nor any
   capture pins a date, so it stays `FULFILLED (undated)` — kept out of the
   on-time rate rather than assumed on time.
 - **`UNVERIFIABLE` still fires** when the live page is unreachable *and* the
-  archive has nothing usable (or the stored record has a broken date). The
-  seed happens not to hit that today — `OpenAI`'s bot-blocked download page
-  resolves via its 2024-12-28 archived capture — but the status is live in the
-  decision table.
-- The seed is 8 curated promises across 6 companies — enough to show the
-  mechanism, not a census. Four verify point-in-time against the company's own
-  official page; one is undated. Treat the headline percentage as illustrative.
+  archive has nothing usable (or the stored record has a broken date).
+  `OpenAI`'s bot-blocked ChatGPT-for-Windows page hits this on any pass where
+  the archived-capture fallback doesn't answer in time, and clears on the next
+  cycle — the status is live in the decision table, not theoretical.
+- The seed is 14 curated promises across 7 companies (Anthropic, Apple, Google,
+  Meta, OpenAI, Stability AI, xAI) — enough to show the mechanism, not a
+  census. Treat the headline percentage as illustrative: the re-verification
+  cycle re-runs it every 6 hours and it moves as pages and archives change.
 
 ---
 
